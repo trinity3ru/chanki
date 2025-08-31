@@ -55,11 +55,16 @@ echo "📁 Создаем директории для данных..."
 mkdir -p data logs
 
 # Создаем файлы если они не существуют
-touch sites.json monitor.log
+touch sites.json
+touch logs/monitor.log
 
 # Устанавливаем права доступа
 chmod 755 data logs
-chmod 644 sites.json monitor.log
+chmod 644 sites.json
+chmod 666 logs/monitor.log  # Разрешаем запись в лог-файл
+
+# Убеждаемся что владелец правильный (1000 соответствует пользователю в контейнере)
+sudo chown -R 1000:1000 data logs sites.json 2>/dev/null || chown -R 1000:1000 data logs sites.json 2>/dev/null || true
 
 # Проверяем синтаксис docker-compose.yml
 echo "🔍 Проверяем конфигурацию Docker Compose..."

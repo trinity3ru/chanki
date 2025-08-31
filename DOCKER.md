@@ -261,17 +261,25 @@ chmod 755 data logs
 ```bash
 # Автоматическое исправление проблем с volumes
 ./fix-docker-volumes.sh
+```
+
+#### 5. Ошибка "PermissionError: Permission denied"
+```bash
+# Автоматическое исправление прав доступа
+./fix-permissions.sh
 
 # Или вручную:
 docker-compose down
-rm -rf sites.json monitor.log
 mkdir -p data logs
-touch sites.json monitor.log
+touch sites.json logs/monitor.log
+chmod 755 data logs
+chmod 666 logs/monitor.log
+sudo chown -R 1000:1000 data logs sites.json
 docker-compose build --no-cache
 docker-compose up -d
 ```
 
-#### 5. Нехватка ресурсов
+#### 6. Нехватка ресурсов
 ```bash
 # Проверяем использование ресурсов
 docker stats site-monitor-bot

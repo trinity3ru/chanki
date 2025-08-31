@@ -43,13 +43,29 @@ class SiteMonitoringApp:
     
     def setup_logging(self):
         """Настройка системы логирования"""
+        # Создаем директорию для логов если её нет
+        import os
+        log_dir = os.path.dirname(config.LOG_FILE)
+        if log_dir and not os.path.exists(log_dir):
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+            except PermissionError:
+                # Если не можем создать директорию, используем текущую
+                pass
+        
+        # Пытаемся создать FileHandler, если не получается - используем только консоль
+        handlers = [logging.StreamHandler(sys.stdout)]
+        
+        try:
+            handlers.append(logging.FileHandler(config.LOG_FILE, encoding='utf-8'))
+        except (PermissionError, FileNotFoundError):
+            # Если не можем записать в файл, продолжаем только с консольным выводом
+            print(f"⚠️ Не удалось создать лог-файл {config.LOG_FILE}, используем только консольный вывод")
+        
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(config.LOG_FILE, encoding='utf-8'),
-                logging.StreamHandler(sys.stdout)
-            ]
+            handlers=handlers
         )
     
     def signal_handler(self, signum, frame):

@@ -25,12 +25,13 @@ COPY *.md ./
 COPY *.txt ./
 COPY *.sh ./
 
-# Создаем директории для данных и логов
-RUN mkdir -p /app/data /app/logs
-
 # Создаем пользователя для безопасности
-RUN useradd -m -u 1000 sitebot && \
+RUN useradd -m -u 1000 sitebot
+
+# Создаем директории для данных и логов
+RUN mkdir -p /app/data /app/logs /app/host_data && \
     chown -R sitebot:sitebot /app
+
 USER sitebot
 
 # Устанавливаем переменные окружения
