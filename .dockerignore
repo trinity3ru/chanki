@@ -1,0 +1,61 @@
+# Git и системные файлы
+.git/
+.gitignore
+.DS_Store
+Thumbs.db
+
+# Python кеш и виртуальные окружения
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+.env/
+
+# IDE файлы
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Логи и данные (будут монтированы как volumes)
+*.log
+sites.json
+data/
+logs/
+
+# Docker файлы
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Документация и тесты
+README.md
+SETUP.md
+SECURITY.md
+LAUNCH.md
+QUICKSTART.md
+test_*.py
+*_test.py
+
+# Скрипты развертывания
+deploy.sh
+setup_uv.sh
+
+# Временные файлы
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Секретные файлы (на всякий случай)
+.env*
+*secret*
+*password*
+*token*
+*.key
+*.pem

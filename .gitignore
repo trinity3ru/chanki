@@ -185,3 +185,9 @@ certificates/
 *.csr
 *.p12
 *.pfx
+
+# 🐳 Docker файлы
+data/
+logs/
+docker-compose.override.yml
+.docker/

@@ -8,7 +8,7 @@ import time
 from typing import Dict, Tuple, Optional
 from bs4 import BeautifulSoup
 import difflib
-ьimport config
+import config
 from database import SitesDatabase
 
 class SiteMonitor:
