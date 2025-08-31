@@ -16,4 +16,4 @@ TELEGRAM_BOT_TOKEN=ваш_токен_бота_здесь
 # 4. Сохраните файл
 
 # Пример команды:
-# echo "TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz" > .env
+# echo "TELEGRAM_BOT_TOKEN=ваш_реальный_токен" > .env

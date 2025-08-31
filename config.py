@@ -25,8 +25,8 @@ MIN_CHANGED_CHARS = int(os.getenv('MIN_CHANGED_CHARS', 50))  # Минимум и
 MAX_LENGTH_CHANGE_RATIO = float(os.getenv('MAX_LENGTH_CHANGE_RATIO', 0.30))  # 30% - изменение длины
 
 # Пути к файлам
-SITES_DATABASE_FILE = 'sites.json'  # Файл с базой сайтов
-LOG_FILE = 'monitor.log'  # Файл логов
+SITES_DATABASE_FILE = os.getenv('SITES_DATABASE_FILE', 'host_data/sites.json')  # Файл с базой сайтов
+LOG_FILE = os.getenv('LOG_FILE', 'logs/monitor.log')  # Файл логов
 
 # Настройки уведомлений
 NOTIFICATION_RETRY_DELAY = 300  # Задержка между повторными уведомлениями в секундах (5 минут)

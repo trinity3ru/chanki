@@ -116,7 +116,7 @@ nano .env
 
 **Пример .env файла:**
 ```env
-TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+TELEGRAM_BOT_TOKEN=ваш_реальный_токен_здесь
 CHECK_INTERVAL_HOURS=6
 REQUEST_TIMEOUT=10
 DEBUG=false
@@ -249,7 +249,7 @@ docker network ls
 docker network inspect chanki_site-monitor-network
 ```
 
-#### 3. Проблемы с разрешениями
+#### 3. Проблемы с разрешениями или volumes
 ```bash
 # Исправляем права доступа
 sudo chown -R $USER:$USER data logs sites.json monitor.log
@@ -257,7 +257,21 @@ chmod 644 sites.json monitor.log
 chmod 755 data logs
 ```
 
-#### 4. Нехватка ресурсов
+#### 4. Ошибка "IsADirectoryError: monitor.log"
+```bash
+# Автоматическое исправление проблем с volumes
+./fix-docker-volumes.sh
+
+# Или вручную:
+docker-compose down
+rm -rf sites.json monitor.log
+mkdir -p data logs
+touch sites.json monitor.log
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+#### 5. Нехватка ресурсов
 ```bash
 # Проверяем использование ресурсов
 docker stats site-monitor-bot

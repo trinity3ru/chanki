@@ -14,12 +14,16 @@ services:
       - REQUEST_TIMEOUT=10
       - MIN_CONTENT_LENGTH=100
       
+      # Пути к файлам в контейнере
+      - SITES_DATABASE_FILE=host_data/sites.json
+      - LOG_FILE=logs/monitor.log
+      
     volumes:
       # Сохраняем данные и логи на хосте
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./sites.json:/app/sites.json
-      - ./monitor.log:/app/monitor.log
+      # Монтируем только директории, файлы создаются приложением
+      - ./:/app/host_data
       
     # Настройки для безопасности
     security_opt:
