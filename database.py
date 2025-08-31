@@ -80,6 +80,7 @@ class SitesDatabase:
             'last_check': None,
             'last_status': None,
             'last_content_hash': None,
+            'last_content': None,  # Сохраняем последний контент для сравнения
             'is_active': True,
             'check_count': 0,
             'error_count': 0
@@ -150,7 +151,7 @@ class SitesDatabase:
                 return site
         return None
     
-    def update_site_status(self, site_id: int, status: str, content_hash: str = None, error_message: str = None):
+    def update_site_status(self, site_id: int, status: str, content_hash: str = None, content: str = None, error_message: str = None):
         """
         Обновляет статус проверки сайта
         
@@ -158,6 +159,7 @@ class SitesDatabase:
             site_id (int): ID сайта
             status (str): Статус проверки ('ok', 'error', 'changed')
             content_hash (str): Хеш содержимого страницы
+            content (str): Содержимое страницы для сравнения
             error_message (str): Сообщение об ошибке
         """
         sites = self._load_sites()
@@ -170,6 +172,9 @@ class SitesDatabase:
                 
                 if content_hash:
                     site['last_content_hash'] = content_hash
+                
+                if content:
+                    site['last_content'] = content
                 
                 if status == 'error':
                     site['error_count'] += 1

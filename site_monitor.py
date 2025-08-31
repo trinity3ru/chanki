@@ -7,7 +7,8 @@ import requests
 import time
 from typing import Dict, Tuple, Optional
 from bs4 import BeautifulSoup
-import config
+import difflib
+ьimport config
 from database import SitesDatabase
 
 class SiteMonitor:
@@ -92,20 +93,29 @@ class SiteMonitor:
             
             # Проверяем, изменился ли контент
             last_hash = site.get('last_content_hash')
+            last_content = site.get('last_content', '')
             
             if last_hash is None:
-                # Первая проверка - просто сохраняем хеш
-                self.database.update_site_status(site_id, 'ok', content_hash)
+                # Первая проверка - просто сохраняем хеш и контент
+                self.database.update_site_status(site_id, 'ok', content_hash, clean_text)
                 return 'ok', 'Сайт доступен, контент сохранен', content_hash
             
             elif last_hash != content_hash:
-                # Контент изменился
-                self.database.update_site_status(site_id, 'changed', content_hash)
-                return 'changed', 'Сайт доступен, но контент изменился', content_hash
+                # Контент изменился - проверяем значительность изменений
+                is_significant, change_description = self._is_significant_change(last_content, clean_text)
+                
+                if is_significant:
+                    # Значительные изменения - обновляем хеш и контент, отправляем уведомление
+                    self.database.update_site_status(site_id, 'changed', content_hash, clean_text)
+                    return 'changed', f'Сайт доступен: {change_description}', content_hash
+                else:
+                    # Незначительные изменения - НЕ обновляем хеш, НЕ отправляем уведомление
+                    self.database.update_site_status(site_id, 'minor_change', last_hash, last_content)
+                    return 'ok', f'Сайт доступен: {change_description}', last_hash
             
             else:
                 # Контент не изменился
-                self.database.update_site_status(site_id, 'ok', content_hash)
+                self.database.update_site_status(site_id, 'ok', content_hash, clean_text)
                 return 'ok', 'Сайт доступен, контент не изменился', content_hash
                 
         except requests.exceptions.Timeout:
@@ -160,6 +170,66 @@ class SiteMonitor:
         print(f"Проверка завершена. Результаты: OK={len(results['ok'])}, Errors={len(results['error'])}, Changed={len(results['changed'])}")
         
         return results
+    
+    def _is_significant_change(self, old_content: str, new_content: str) -> Tuple[bool, str]:
+        """
+        Определяет, является ли изменение контента значительным
+        
+        Args:
+            old_content (str): Старый контент
+            new_content (str): Новый контент
+            
+        Returns:
+            Tuple[bool, str]: (является_ли_значительным, описание_изменений)
+        """
+        if not old_content or not new_content:
+            return True, "Контент полностью изменился"
+        
+        # 1. Проверяем изменение длины контента
+        old_len = len(old_content)
+        new_len = len(new_content)
+        length_change_ratio = abs(new_len - old_len) / max(old_len, 1)
+        
+        if length_change_ratio > config.MAX_LENGTH_CHANGE_RATIO:
+            percentage = length_change_ratio * 100
+            return True, f"Значительное изменение длины контента: {percentage:.1f}%"
+        
+        # 2. Вычисляем процент различий между текстами
+        differ = difflib.SequenceMatcher(None, old_content, new_content)
+        similarity_ratio = differ.ratio()
+        change_ratio = 1 - similarity_ratio
+        
+        # 3. Подсчитываем количество измененных символов
+        old_words = set(old_content.split())
+        new_words = set(new_content.split())
+        
+        added_words = new_words - old_words
+        removed_words = old_words - new_words
+        changed_chars = len(' '.join(added_words)) + len(' '.join(removed_words))
+        
+        # 4. Определяем значительность по нескольким критериям
+        is_significant = False
+        reasons = []
+        
+        if change_ratio >= config.SIGNIFICANT_CHANGE_THRESHOLD:
+            is_significant = True
+            reasons.append(f"изменено {change_ratio*100:.1f}% контента")
+        
+        if changed_chars >= config.MIN_CHANGED_CHARS:
+            is_significant = True
+            reasons.append(f"{changed_chars} измененных символов")
+        
+        if length_change_ratio > config.MAX_LENGTH_CHANGE_RATIO:
+            is_significant = True
+            reasons.append(f"изменение длины на {length_change_ratio*100:.1f}%")
+        
+        # Формируем описание изменений
+        if is_significant:
+            description = "Значительные изменения: " + ", ".join(reasons)
+        else:
+            description = f"Незначительные изменения: {change_ratio*100:.1f}% контента, {changed_chars} символов"
+        
+        return is_significant, description
     
     def get_site_summary(self, site: Dict) -> str:
         """
