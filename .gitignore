@@ -1,0 +1,187 @@
+# 🔐 Файлы с секретными данными (НИКОГДА НЕ ЗАГРУЖАТЬ!)
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+config.local.py
+secrets.json
+tokens.txt
+passwords.txt
+
+# 📊 База данных и пользовательские данные
+sites.json
+*.db
+*.sqlite
+*.sqlite3
+data/
+database/
+backups/
+
+# 📝 Логи и временные файлы
+*.log
+monitor.log
+debug.log
+error.log
+logs/
+tmp/
+temp/
+
+# 🐍 Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 🔧 Виртуальные окружения
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.env/
+
+# 💻 IDE и редакторы
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 🧪 Тесты и coverage
+.coverage
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+htmlcov/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# 📦 Пакеты и дистрибутивы
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# 🔄 Системные файлы
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 🚀 Развертывание
+.git/
+.svn/
+.hg/
+
+# 📱 Мобильные платформы
+*.apk
+*.ipa
+
+# 🔧 UV и pip
+.uv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 🧪 Тестовые файлы
+test_sites.json
+test_*.db
+*_test.json
+
+# 📊 Аналитика и метрики
+analytics/
+metrics/
+stats/
+
+# 🔄 Резервные копии
+*.bak
+*.backup
+*.old
+backup_*
+
+# 🌐 Веб-файлы (если будут)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 📸 Медиа файлы
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+*.webm
+
+# 📄 Документы
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+
+# 🔧 Конфигурационные файлы операционных систем
+.fseventsd
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# 🔒 SSH ключи
+*.pem
+*.key
+*.pub
+id_rsa*
+id_ed25519*
+
+# 🚨 Дополнительные файлы безопасности
+api_keys.txt
+private_keys/
+certificates/
+*.crt
+*.csr
+*.p12
+*.pfx
