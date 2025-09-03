@@ -27,6 +27,11 @@ class SitesDatabase:
     def _ensure_database_exists(self):
         """Создает файл базы данных если он не существует"""
         if not os.path.exists(self.db_file):
+            # Создаем директорию если она не существует
+            os.makedirs(os.path.dirname(self.db_file), exist_ok=True)
+            self._save_sites([])
+        elif os.path.getsize(self.db_file) == 0:
+            # Если файл пустой, инициализируем его
             self._save_sites([])
     
     def _load_sites(self) -> List[Dict]:
@@ -37,9 +42,24 @@ class SitesDatabase:
             List[Dict]: Список сайтов
         """
         try:
+            # Проверяем, что файл существует и не пустой
+            if not os.path.exists(self.db_file) or os.path.getsize(self.db_file) == 0:
+                return []
+            
             with open(self.db_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
+                content = f.read().strip()
+                if not content:
+                    return []
+                return json.loads(content)
+        except (json.JSONDecodeError, FileNotFoundError, ValueError):
+            # Если файл поврежден, создаем резервную копию и возвращаем пустой список
+            if os.path.exists(self.db_file):
+                backup_file = f"{self.db_file}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                try:
+                    os.rename(self.db_file, backup_file)
+                    print(f"⚠️ Файл {self.db_file} поврежден, создана резервная копия: {backup_file}")
+                except:
+                    pass
             return []
     
     def _save_sites(self, sites: List[Dict]):

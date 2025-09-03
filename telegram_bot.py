@@ -227,28 +227,49 @@ class SiteMonitorBot:
         if not context.args:
             await update.message.reply_text(
                 "❌ Неверный формат команды!\n\n"
-                "📝 Используйте: /remove <ID>\n"
-                "💡 Пример: /remove 1\n\n"
-                "🔍 Используйте /list чтобы увидеть ID ваших сайтов"
+                "📝 Используйте: /remove <ID или URL>\n"
+                "💡 Примеры:\n"
+                "  /remove 1\n"
+                "  /remove promineral.ru\n"
+                "  /remove https://example.com\n\n"
+                "🔍 Используйте /list чтобы увидеть ваши сайты"
             )
             return
         
-        try:
-            site_id = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text("❌ ID сайта должен быть числом!")
-            return
+        # Получаем аргумент (может быть ID или URL)
+        arg = context.args[0]
+        site = None
         
-        # Проверяем, принадлежит ли сайт пользователю
-        site = self.database.get_site_by_id(site_id)
-        if not site or site.get('user_id') != user_id:
+        # Сначала пробуем как ID
+        try:
+            site_id = int(arg)
+            site = self.database.get_site_by_id(site_id)
+            if site and site.get('user_id') != user_id:
+                site = None  # Сайт не принадлежит пользователю
+        except ValueError:
+            # Если не число, ищем по URL
+            user_sites = self.database.get_sites_by_user(user_id)
+            for s in user_sites:
+                # Проверяем точное совпадение URL или домена
+                if (s['url'] == arg or 
+                    s['url'] == f"https://{arg}" or 
+                    s['url'] == f"http://{arg}" or
+                    s['name'] == arg):
+                    site = s
+                    break
+        
+        if not site:
             await update.message.reply_text(
-                f"❌ Сайт с ID {site_id} не найден или не принадлежит вам!"
+                f"❌ Сайт '{arg}' не найден или не принадлежит вам!\n\n"
+                "💡 Проверьте:\n"
+                "  • Правильность ID или URL\n"
+                "  • Что сайт добавлен вами\n"
+                "  • Используйте /list для просмотра ваших сайтов"
             )
             return
         
         # Удаляем сайт
-        success = self.database.remove_site(site_id)
+        success = self.database.remove_site(site['id'])
         
         if success:
             await update.message.reply_text(
