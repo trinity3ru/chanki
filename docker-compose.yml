@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  site-monitor:
+    build: .
+    container_name: site-monitor-bot
+    restart: unless-stopped
+    environment:
+      # Токен бота будет загружен из .env файла
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      
+      # Дополнительные настройки (опционально)
+      - CHECK_INTERVAL_HOURS=6
+      - REQUEST_TIMEOUT=10
+      - MIN_CONTENT_LENGTH=100
+      
+      # Пути к файлам в контейнере
+      - SITES_DATABASE_FILE=host_data/sites.json
+      - LOG_FILE=logs/monitor.log
+      
+    volumes:
+      # Сохраняем данные и логи на хосте
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # Монтируем только директории, файлы создаются приложением
+      - ./:/app/host_data
+      
+    # Настройки для безопасности
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    
+    # Ограничения ресурсов
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.2'
+    
+    # Политика перезапуска
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('https://api.telegram.org', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      
+    # Сетевые настройки
+    networks:
+      - site-monitor-network
+
+networks:
+  site-monitor-network:
+    driver: bridge
