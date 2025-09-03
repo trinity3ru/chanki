@@ -141,11 +141,21 @@ class SiteMonitorBot:
                 )
                 
                 # Создаем кнопки для выбора
-                url_encoded = base64.b64encode(url.encode()).decode()
-                name_encoded = base64.b64encode(name.encode()).decode()
+                # Используем хеш URL вместо полного URL для экономии места
+                import hashlib
+                url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+                name_hash = hashlib.md5(name.encode()).hexdigest()[:8]
+                
+                # Сохраняем данные во временное хранилище (в реальном приложении лучше использовать Redis)
+                if not hasattr(self, '_temp_data'):
+                    self._temp_data = {}
+                
+                temp_key = f"{url_hash}_{name_hash}"
+                self._temp_data[temp_key] = {'url': url, 'name': name}
+                
                 keyboard = [
                     [
-                        InlineKeyboardButton("✅ Да, добавить", callback_data=f"add_confirm_{url_encoded}_{name_encoded}"),
+                        InlineKeyboardButton("✅ Да, добавить", callback_data=f"add_confirm_{temp_key}"),
                         InlineKeyboardButton("❌ Нет, отменить", callback_data="add_cancel")
                     ]
                 ]
@@ -416,20 +426,34 @@ class SiteMonitorBot:
         if data == "add_cancel":
             # Пользователь отменил добавление
             await query.edit_message_text("❌ Добавление сайта отменено.")
+            
+            # Очищаем временные данные (если есть)
+            if hasattr(self, '_temp_data'):
+                # Находим и удаляем данные для этого пользователя
+                keys_to_remove = []
+                for key in self._temp_data.keys():
+                    if key.startswith("add_confirm_"):
+                        keys_to_remove.append(key)
+                
+                for key in keys_to_remove:
+                    if key in self._temp_data:
+                        del self._temp_data[key]
             return
         
         if data.startswith("add_confirm_"):
             # Пользователь подтвердил добавление сайта с малым контентом
             try:
-                # Извлекаем URL и имя из callback_data
-                parts = data.split("_", 2)
-                if len(parts) >= 3:
-                    url_encoded = parts[2]
-                    name_encoded = parts[3] if len(parts) > 3 else url_encoded
+                # Извлекаем ключ из callback_data
+                temp_key = data.replace("add_confirm_", "")
+                
+                # Получаем данные из временного хранилища
+                if hasattr(self, '_temp_data') and temp_key in self._temp_data:
+                    temp_data = self._temp_data[temp_key]
+                    url = temp_data['url']
+                    name = temp_data['name']
                     
-                    # Декодируем URL и имя
-                    url = base64.b64decode(url_encoded.encode()).decode()
-                    name = base64.b64decode(name_encoded.encode()).decode()
+                    # Удаляем данные из временного хранилища
+                    del self._temp_data[temp_key]
                     
                     # Добавляем сайт в базу данных
                     success = self.database.add_site(url, name, user_id)

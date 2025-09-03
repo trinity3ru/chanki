@@ -127,10 +127,8 @@ class SitesDatabase:
         sites = [site for site in sites if site['id'] != site_id]
         
         if len(sites) < original_count:
-            # Пересчитываем ID для оставшихся сайтов
-            for i, site in enumerate(sites):
-                site['id'] = i + 1
-            
+            # НЕ пересчитываем ID - оставляем как есть
+            # Это предотвращает проблемы с порядком и ссылками
             self._save_sites(sites)
             return True
         
