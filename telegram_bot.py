@@ -3,6 +3,7 @@ Telegram бот для управления мониторингом сайто�
 Предоставляет интерфейс для добавления, удаления и просмотра сайтов
 """
 import logging
+import base64
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from typing import Dict, List
@@ -110,7 +111,7 @@ class SiteMonitorBot:
         
         try:
             # Проверяем доступность сайта перед добавлением
-            is_available, availability_message = self.monitor.check_site_availability(url)
+            is_available, availability_message, content = self.monitor.check_site_availability(url)
             
             if not is_available:
                 # Сайт недоступен - не добавляем и показываем ошибку
@@ -123,7 +124,37 @@ class SiteMonitorBot:
                 )
                 return
             
-            # Сайт доступен - добавляем в базу данных
+            # Сайт доступен - показываем результат и даем выбор
+            if "⚠️ Мало контента" in availability_message:
+                # Мало контента - показываем пользователю и даем выбор
+                content_preview = content[:200] + "..." if len(content) > 200 else content
+                
+                message_text = (
+                    f"⚠️ Сайт доступен, но контент небольшой!\n\n"
+                    f"🌐 Название: {name}\n"
+                    f"🔗 URL: {url}\n\n"
+                    f"📝 Контент ({len(content)} символов):\n"
+                    f"\"{content_preview}\"\n\n"
+                    f"💡 Хотите добавить этот сайт?\n"
+                    f"• Да - сайт будет добавлен и отслеживаться\n"
+                    f"• Нет - попробуйте другой URL"
+                )
+                
+                # Создаем кнопки для выбора
+                url_encoded = base64.b64encode(url.encode()).decode()
+                name_encoded = base64.b64encode(name.encode()).decode()
+                keyboard = [
+                    [
+                        InlineKeyboardButton("✅ Да, добавить", callback_data=f"add_confirm_{url_encoded}_{name_encoded}"),
+                        InlineKeyboardButton("❌ Нет, отменить", callback_data="add_cancel")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await checking_msg.edit_text(message_text, reply_markup=reply_markup)
+                return
+            
+            # Сайт доступен с нормальным контентом - добавляем сразу
             success = self.database.add_site(url, name, user_id)
             
             if success:
@@ -368,6 +399,59 @@ class SiteMonitorBot:
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка при проверке: {str(e)}")
     
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Обработчик нажатий на кнопки
+        
+        Args:
+            update (Update): Обновление от Telegram
+            context (ContextTypes.DEFAULT_TYPE): Контекст бота
+        """
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = update.effective_user.id
+        data = query.data
+        
+        if data == "add_cancel":
+            # Пользователь отменил добавление
+            await query.edit_message_text("❌ Добавление сайта отменено.")
+            return
+        
+        if data.startswith("add_confirm_"):
+            # Пользователь подтвердил добавление сайта с малым контентом
+            try:
+                # Извлекаем URL и имя из callback_data
+                parts = data.split("_", 2)
+                if len(parts) >= 3:
+                    url_encoded = parts[2]
+                    name_encoded = parts[3] if len(parts) > 3 else url_encoded
+                    
+                    # Декодируем URL и имя
+                    url = base64.b64decode(url_encoded.encode()).decode()
+                    name = base64.b64decode(name_encoded.encode()).decode()
+                    
+                    # Добавляем сайт в базу данных
+                    success = self.database.add_site(url, name, user_id)
+                    
+                    if success:
+                        await query.edit_message_text(
+                            f"✅ Сайт успешно добавлен!\n\n"
+                            f"🌐 Название: {name}\n"
+                            f"🔗 URL: {url}\n\n"
+                            f"⚠️ Сайт добавлен с предупреждением о малом контенте\n\n"
+                            f"📊 Сайт будет проверяться каждые 6 часов"
+                        )
+                    else:
+                        await query.edit_message_text(
+                            f"❌ Ошибка! Сайт {url} уже существует в базе данных.\n\n"
+                            f"💡 Используйте /list чтобы увидеть все ваши сайты"
+                        )
+                else:
+                    await query.edit_message_text("❌ Ошибка при обработке данных.")
+            except Exception as e:
+                await query.edit_message_text(f"❌ Ошибка при добавлении сайта: {str(e)}")
+    
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик ошибок бота
@@ -391,6 +475,9 @@ class SiteMonitorBot:
         self.application.add_handler(CommandHandler("remove", self.remove_site))
         self.application.add_handler(CommandHandler("status", self.status_command))
         self.application.add_handler(CommandHandler("check", self.check_now))
+        
+        # Добавляем обработчик кнопок
+        self.application.add_handler(CallbackQueryHandler(self.button_callback))
         
         # Добавляем обработчик ошибок
         self.application.add_error_handler(self.error_handler)

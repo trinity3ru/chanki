@@ -278,7 +278,7 @@ class SiteMonitor:
         
         return is_significant, description
     
-    def check_site_availability(self, url: str) -> Tuple[bool, str]:
+    def check_site_availability(self, url: str) -> Tuple[bool, str, str]:
         """
         Проверяет доступность сайта без сохранения в базу данных
         Используется при добавлении нового сайта для валидации
@@ -287,7 +287,7 @@ class SiteMonitor:
             url (str): URL сайта для проверки
             
         Returns:
-            Tuple[bool, str]: (доступен_ли_сайт, сообщение_о_результате)
+            Tuple[bool, str, str]: (доступен_ли_сайт, сообщение_о_результате, контент_страницы)
         """
         try:
             # Выполняем HTTP запрос с таймаутом
@@ -299,14 +299,10 @@ class SiteMonitor:
             
             # Проверяем HTTP статус код
             if response.status_code != 200:
-                return False, f"HTTP ошибка: {response.status_code}"
+                return False, f"HTTP ошибка: {response.status_code}", ""
             
             # Получаем содержимое страницы с правильной кодировкой
             content = self._decode_response_content(response)
-            
-            # Проверяем минимальную длину контента
-            if len(content) < config.MIN_CONTENT_LENGTH:
-                return False, f"Слишком короткий контент: {len(content)} символов (минимум {config.MIN_CONTENT_LENGTH})"
             
             # Извлекаем основной контент (убираем HTML теги)
             soup = BeautifulSoup(content, 'html.parser')
@@ -323,22 +319,23 @@ class SiteMonitor:
             
             # Проверяем минимальную длину очищенного текста
             if len(clean_text) < config.MIN_CONTENT_LENGTH:
-                return False, f"Слишком мало текстового контента: {len(clean_text)} символов (минимум {config.MIN_CONTENT_LENGTH})"
+                # Сайт доступен, но контент малый - возвращаем предупреждение
+                return True, f"⚠️ Мало контента: {len(clean_text)} символов (минимум {config.MIN_CONTENT_LENGTH})", clean_text
             
             # Если все проверки пройдены
-            return True, f"Сайт доступен, контент: {len(clean_text)} символов"
+            return True, f"✅ Сайт доступен, контент: {len(clean_text)} символов", clean_text
                 
         except requests.exceptions.Timeout:
-            return False, f"Таймаут запроса (>{config.REQUEST_TIMEOUT}с)"
+            return False, f"Таймаут запроса (>{config.REQUEST_TIMEOUT}с)", ""
             
         except requests.exceptions.ConnectionError:
-            return False, "Ошибка подключения к сайту"
+            return False, "Ошибка подключения к сайту", ""
             
         except requests.exceptions.RequestException as e:
-            return False, f"Ошибка запроса: {str(e)}"
+            return False, f"Ошибка запроса: {str(e)}", ""
             
         except Exception as e:
-            return False, f"Неожиданная ошибка: {str(e)}"
+            return False, f"Неожиданная ошибка: {str(e)}", ""
 
     def get_site_summary(self, site: Dict) -> str:
         """
