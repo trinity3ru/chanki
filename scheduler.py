@@ -165,36 +165,28 @@ class MonitoringScheduler:
         Returns:
             str: Текст уведомления или пустая строка если нечего уведомлять
         """
-        total_sites = sum(len(sites) for sites in user_results.values())
-        
-        if total_sites == 0:
+        # Отправляем уведомления только если есть проблемы или изменения
+        if not user_results['error'] and not user_results['changed']:
             return ""
-        
-        notification = f"🔔 Результаты проверки сайтов ({total_sites}):\n\n"
-        
-        # Добавляем информацию об ошибках
+
+        total_affected = len(user_results['error']) + len(user_results['changed'])
+        notification = f"🔔 Результаты проверки: затронуто {total_affected} сайт(ов)\n\n"
+
         if user_results['error']:
             notification += "❌ Проблемы с сайтами:\n"
             for result in user_results['error']:
                 site = result['site']
                 notification += f"  • {site['name']}: {result['message']}\n"
             notification += "\n"
-        
-        # Добавляем информацию об изменениях
+
         if user_results['changed']:
             notification += "🔄 Сайты с изменениями:\n"
             for result in user_results['changed']:
                 site = result['site']
                 notification += f"  • {site['name']}: {result['message']}\n"
             notification += "\n"
-        
-        # Добавляем общую статистику
-        working_sites = len(user_results['ok'])
-        if working_sites > 0:
-            notification += f"✅ Работают нормально: {working_sites} сайтов\n"
-        
-        notification += f"\n🕐 Следующая проверка через {config.get_check_interval_hours()} часов"
-        
+
+        notification += f"🕐 Следующая проверка через {config.get_check_interval_hours()} часов"
         return notification
     
     def _send_telegram_notification(self, user_id: int, message: str):

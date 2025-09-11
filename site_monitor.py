@@ -110,11 +110,11 @@ class SiteMonitor:
             # Получаем содержимое страницы с правильной кодировкой
             content = self._decode_response_content(response)
             
-            # Проверяем минимальную длину контента
+            # Проверяем минимальную длину сырого контента (до очистки)
             if len(content) < config.MIN_CONTENT_LENGTH:
-                error_msg = f"Слишком короткий контент: {len(content)} символов"
-                self.database.update_site_status(site_id, 'error', error_message=error_msg)
-                return 'error', error_msg, None
+                # Не считаем это фатальной ошибкой: продолжаем, но пометим предупреждение в сообщении
+                # Основное решение по уведомлениям будет применено на уровне scheduler
+                pass
             
             # Извлекаем основной контент (убираем HTML теги)
             soup = BeautifulSoup(content, 'html.parser')
@@ -130,10 +130,7 @@ class SiteMonitor:
             clean_text = ' '.join(clean_text.split())
             
             # Проверяем минимальную длину очищенного текста
-            if len(clean_text) < config.MIN_CONTENT_LENGTH:
-                error_msg = f"Слишком мало текстового контента: {len(clean_text)} символов"
-                self.database.update_site_status(site_id, 'error', error_message=error_msg)
-                return 'error', error_msg, None
+            is_small_content = len(clean_text) < config.MIN_CONTENT_LENGTH
             
             # Вычисляем хеш контента
             content_hash = hashlib.sha256(clean_text.encode('utf-8')).hexdigest()
@@ -162,7 +159,10 @@ class SiteMonitor:
             
             else:
                 # Контент не изменился
+                # Если контента мало, но хеш не меняется — считаем "ok" без уведомления
                 self.database.update_site_status(site_id, 'ok', content_hash, clean_text)
+                if is_small_content:
+                    return 'ok', f'Сайт доступен, мало контента: {len(clean_text)} символов (хеш без изменений)', content_hash
                 return 'ok', 'Сайт доступен, контент не изменился', content_hash
                 
         except requests.exceptions.Timeout:
