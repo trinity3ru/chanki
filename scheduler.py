@@ -46,14 +46,40 @@ class MonitoringScheduler:
         self.running = True
         self.logger.info("Запускаю планировщик мониторинга...")
         
-        # Планируем задачу каждые 6 часов
-        schedule.every(config.CHECK_INTERVAL_HOURS).hours.do(self.run_monitoring_check)
+        # Планируем задачу каждые N часов (динамически из настроек)
+        interval_hours = config.get_check_interval_hours()
+        schedule.every(interval_hours).hours.do(self.run_monitoring_check)
         
         # Запускаем планировщик в отдельном потоке
         scheduler_thread = threading.Thread(target=self._run_scheduler_loop, daemon=True)
         scheduler_thread.start()
         
-        self.logger.info(f"Планировщик запущен. Следующая проверка через {config.CHECK_INTERVAL_HOURS} часов")
+        self.logger.info(f"Планировщик запущен. Следующая проверка через {config.get_check_interval_hours()} часов")
+
+    def update_interval(self, new_hours: int) -> bool:
+        """
+        Обновляет интервал плановой проверки и перепланирует задачу.
+
+        Args:
+            new_hours (int): Новый интервал в часах (1..168)
+
+        Returns:
+            bool: True если обновление успешно, иначе False
+        """
+        # Сохраняем значение в настройках; при невалидном значении вернётся False
+        if not config.set_check_interval_hours(new_hours):
+            return False
+
+        try:
+            # Очищаем предыдущие задания и перепланируем
+            schedule.clear()
+            interval_hours = config.get_check_interval_hours()
+            schedule.every(interval_hours).hours.do(self.run_monitoring_check)
+            self.logger.info(f"Интервал проверки обновлён: каждые {interval_hours} часов")
+            return True
+        except Exception as e:
+            self.logger.error(f"Ошибка перепланировки: {str(e)}")
+            return False
     
     def stop_scheduler(self):
         """Останавливает планировщик задач"""
@@ -167,7 +193,7 @@ class MonitoringScheduler:
         if working_sites > 0:
             notification += f"✅ Работают нормально: {working_sites} сайтов\n"
         
-        notification += f"\n🕐 Следующая проверка через {config.CHECK_INTERVAL_HOURS} часов"
+        notification += f"\n🕐 Следующая проверка через {config.get_check_interval_hours()} часов"
         
         return notification
     
@@ -223,7 +249,7 @@ class MonitoringScheduler:
         return {
             'running': self.running,
             'next_check': self.get_next_check_time(),
-            'check_interval_hours': config.CHECK_INTERVAL_HOURS,
+            'check_interval_hours': config.get_check_interval_hours(),
             'active_sites_count': len(self.database.get_active_sites())
         }
 

@@ -30,6 +30,8 @@ class SiteMonitoringApp:
             self.monitor = SiteMonitor(self.database)
             self.bot = SiteMonitorBot()
             self.scheduler = MonitoringScheduler(self.bot)
+            # Свяжем бота с планировщиком, чтобы команда /interval могла перепланировать задачи
+            self.bot.scheduler = self.scheduler
             
             self.logger.info("Все компоненты успешно инициализированы")
             
@@ -126,7 +128,7 @@ def main():
     """Главная функция приложения"""
     print("🚀 Запуск приложения мониторинга сайтов...")
     print(f"📅 Время запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"⏰ Интервал проверки: каждые {config.CHECK_INTERVAL_HOURS} часов")
+    print(f"⏰ Интервал проверки: каждые {config.get_check_interval_hours()} часов")
     print(f"📁 База данных: {config.SITES_DATABASE_FILE}")
     print(f"📝 Логи: {config.LOG_FILE}")
     print("=" * 60)

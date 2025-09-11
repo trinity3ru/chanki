@@ -21,6 +21,7 @@ class SiteMonitorBot:
         self.database = SitesDatabase()
         self.monitor = SiteMonitor(self.database)
         self.application = None
+        self.scheduler = None  # Устанавливается извне, чтобы уметь перепланировать задания
         
         # Настройка логирования
         logging.basicConfig(
@@ -42,7 +43,7 @@ class SiteMonitorBot:
         
         welcome_text = f"👋 Привет, {username}!\n\n"
         welcome_text += "🤖 Я бот для мониторинга сайтов.\n"
-        welcome_text += "Я буду проверять доступность ваших сайтов каждые 6 часов.\n\n"
+        welcome_text += f"Я буду проверять доступность ваших сайтов каждые {config.get_check_interval_hours()} часов.\n\n"
         welcome_text += "📋 Доступные команды:\n"
         welcome_text += "/add - Добавить сайт для мониторинга\n"
         welcome_text += "/list - Показать все ваши сайты\n"
@@ -70,8 +71,9 @@ class SiteMonitorBot:
         help_text += "   Пример: /remove 1\n\n"
         help_text += "📊 /status - Показать статус всех сайтов\n\n"
         help_text += "🔍 /check - Запустить проверку всех сайтов сейчас\n\n"
+        help_text += "⏱️ /interval <часы> - Установить интервал проверки (1-168)\n\n"
         help_text += "❓ /help - Показать эту справку\n\n"
-        help_text += "💡 Сайты проверяются автоматически каждые 6 часов"
+        help_text += f"💡 Сайты проверяются автоматически каждые {config.get_check_interval_hours()} часов"
         
         await update.message.reply_text(help_text)
     
@@ -499,6 +501,7 @@ class SiteMonitorBot:
         self.application.add_handler(CommandHandler("remove", self.remove_site))
         self.application.add_handler(CommandHandler("status", self.status_command))
         self.application.add_handler(CommandHandler("check", self.check_now))
+        self.application.add_handler(CommandHandler("interval", self.set_interval))
         
         # Добавляем обработчик кнопок
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
@@ -509,3 +512,50 @@ class SiteMonitorBot:
         # Запускаем бота
         self.logger.info("Запускаю бота...")
         self.application.run_polling()
+
+    async def set_interval(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Обработчик команды /interval для установки интервала проверки в часах.
+
+        Использование: /interval <целое число 1..168>
+        Сохраняет значение в settings.json и инициирует перепланировку в планировщике.
+        """
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Неверный формат команды!\n\n"
+                "📝 Используйте: /interval <часы>\n"
+                "💡 Примеры: /interval 1, /interval 6, /interval 24"
+            )
+            return
+
+        arg = context.args[0]
+        try:
+            hours = int(arg)
+        except ValueError:
+            await update.message.reply_text("❌ Часы должны быть целым числом от 1 до 168")
+            return
+
+        if not (1 <= hours <= 168):
+            await update.message.reply_text("❌ Допустимый диапазон часов: 1..168")
+            return
+
+        # Сохраняем и перепланируем
+        saved = config.set_check_interval_hours(hours)
+        if not saved:
+            await update.message.reply_text("❌ Не удалось сохранить интервал. Попробуйте другое значение.")
+            return
+
+        # Если планировщик доступен, перепланируем немедленно
+        next_info = ""
+        if getattr(self, 'scheduler', None):
+            try:
+                ok = self.scheduler.update_interval(hours)
+                if ok:
+                    next_time = self.scheduler.get_next_check_time()
+                    next_info = f"\n🕐 Следующая проверка: {next_time}"
+            except Exception:
+                pass
+
+        await update.message.reply_text(
+            f"✅ Интервал обновлён: каждые {config.get_check_interval_hours()} часов.{next_info}"
+        )
