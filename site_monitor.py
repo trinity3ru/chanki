@@ -171,21 +171,21 @@ class SiteMonitor:
                         if is_small_content:
                             return 'ok', f'Сайт доступен, мало контента: {len(clean_text)} символов (хеш без изменений)', content_hash
                         return 'ok', 'Сайт доступен, контент не изменился', content_hash
-                    
+                
+                else:
+                    # HTTP ошибка (4xx, 5xx) - пробуем повторить (может быть временная проблема)
+                    error_msg = f"HTTP ошибка: {response.status_code}"
+                    last_exception = requests.exceptions.HTTPError(error_msg)
+                    if attempt < config.MAX_RETRIES - 1:
+                        time.sleep(config.RETRY_DELAY)
+                        continue
                     else:
-                        # HTTP ошибка (4xx, 5xx) - пробуем повторить (может быть временная проблема)
-                        error_msg = f"HTTP ошибка: {response.status_code}"
-                        last_exception = requests.exceptions.HTTPError(error_msg)
-                        if attempt < config.MAX_RETRIES - 1:
-                            time.sleep(config.RETRY_DELAY)
-                            continue
+                        # Все попытки исчерпаны
+                        if self._should_report_error(site):
+                            self.database.update_site_status(site_id, 'error', error_message=error_msg)
+                            return 'error', error_msg, None
                         else:
-                            # Все попытки исчерпаны
-                            if self._should_report_error(site):
-                                self.database.update_site_status(site_id, 'error', error_message=error_msg)
-                                return 'error', error_msg, None
-                            else:
-                                return 'ok', f'Временная проблема: {error_msg}', None
+                            return 'ok', f'Временная проблема: {error_msg}', None
             
             except requests.exceptions.Timeout as e:
                 # Таймаут - часто временная проблема, повторяем попытку
