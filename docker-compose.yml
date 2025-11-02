@@ -24,6 +24,13 @@ services:
       - ./logs:/app/logs
       # Монтируем только директории, файлы создаются приложением
       - ./:/app/host_data
+      # Монтируем Python файлы для обновления без пересборки
+      - ./site_monitor.py:/app/site_monitor.py:ro
+      - ./config.py:/app/config.py:ro
+      - ./database.py:/app/database.py:ro
+      - ./main.py:/app/main.py:ro
+      - ./telegram_bot.py:/app/telegram_bot.py:ro
+      - ./scheduler.py:/app/scheduler.py:ro
       
     # Настройки для безопасности
     security_opt:
