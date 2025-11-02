@@ -82,6 +82,7 @@ class SiteMonitor:
     def check_site(self, site: Dict) -> Tuple[str, str, Optional[str]]:
         """
         Проверяет один сайт на доступность и изменения
+        Использует механизм повторных попыток для уменьшения ложных ошибок
         
         Args:
             site (Dict): Данные сайта из базы данных
@@ -93,97 +94,162 @@ class SiteMonitor:
         url = site['url']
         site_id = site['id']
         
-        try:
-            # Выполняем HTTP запрос с таймаутом
-            response = self.session.get(
-                url, 
-                timeout=config.REQUEST_TIMEOUT,
-                allow_redirects=True
-            )
+        # Механизм повторных попыток для уменьшения ложных срабатываний
+        last_exception = None
+        response = None
+        
+        for attempt in range(config.MAX_RETRIES):
+            try:
+                # Выполняем HTTP запрос с таймаутом
+                response = self.session.get(
+                    url, 
+                    timeout=config.REQUEST_TIMEOUT,
+                    allow_redirects=True
+                )
+                
+                # Проверяем HTTP статус код
+                # Принимаем успешными коды 2xx и 3xx (редиректы)
+                if 200 <= response.status_code < 400:
+                    # Успешный ответ - обрабатываем содержимое
+                    # Сбрасываем счетчик последовательных ошибок при успешной проверке
+                    self._reset_consecutive_errors(site_id)
+                    
+                    # Получаем содержимое страницы с правильной кодировкой
+                    content = self._decode_response_content(response)
             
-            # Проверяем HTTP статус код
-            if response.status_code != 200:
-                error_msg = f"HTTP ошибка: {response.status_code}"
+                    # Проверяем минимальную длину сырого контента (до очистки)
+                    if len(content) < config.MIN_CONTENT_LENGTH:
+                        # Не считаем это фатальной ошибкой: продолжаем, но пометим предупреждение в сообщении
+                        # Основное решение по уведомлениям будет применено на уровне scheduler
+                        pass
+                    
+                    # Извлекаем основной контент (убираем HTML теги)
+                    soup = BeautifulSoup(content, 'html.parser')
+                    
+                    # Убираем скрипты, стили и другие технические элементы
+                    for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
+                        script.decompose()
+                    
+                    # Получаем чистый текст
+                    clean_text = soup.get_text()
+                    
+                    # Убираем лишние пробелы и переносы строк
+                    clean_text = ' '.join(clean_text.split())
+                    
+                    # Проверяем минимальную длину очищенного текста
+                    is_small_content = len(clean_text) < config.MIN_CONTENT_LENGTH
+                    
+                    # Вычисляем хеш контента
+                    content_hash = hashlib.sha256(clean_text.encode('utf-8')).hexdigest()
+                    
+                    # Проверяем, изменился ли контент
+                    last_hash = site.get('last_content_hash')
+                    last_content = site.get('last_content', '')
+                    
+                    if last_hash is None:
+                        # Первая проверка - просто сохраняем хеш и контент
+                        self.database.update_site_status(site_id, 'ok', content_hash, clean_text)
+                        return 'ok', 'Сайт доступен, контент сохранен', content_hash
+                    
+                    elif last_hash != content_hash:
+                        # Контент изменился - проверяем значительность изменений
+                        is_significant, change_description = self._is_significant_change(last_content, clean_text)
+                        
+                        if is_significant:
+                            # Значительные изменения - обновляем хеш и контент, отправляем уведомление
+                            self.database.update_site_status(site_id, 'changed', content_hash, clean_text)
+                            return 'changed', f'Сайт доступен: {change_description}', content_hash
+                        else:
+                            # Незначительные изменения - НЕ обновляем хеш, НЕ отправляем уведомление
+                            self.database.update_site_status(site_id, 'minor_change', last_hash, last_content)
+                            return 'ok', f'Сайт доступен: {change_description}', last_hash
+                    
+                    else:
+                        # Контент не изменился
+                        # Если контента мало, но хеш не меняется — считаем "ok" без уведомления
+                        self.database.update_site_status(site_id, 'ok', content_hash, clean_text)
+                        if is_small_content:
+                            return 'ok', f'Сайт доступен, мало контента: {len(clean_text)} символов (хеш без изменений)', content_hash
+                        return 'ok', 'Сайт доступен, контент не изменился', content_hash
+                    
+                    else:
+                        # HTTP ошибка (4xx, 5xx) - пробуем повторить (может быть временная проблема)
+                        error_msg = f"HTTP ошибка: {response.status_code}"
+                        last_exception = requests.exceptions.HTTPError(error_msg)
+                        if attempt < config.MAX_RETRIES - 1:
+                            time.sleep(config.RETRY_DELAY)
+                            continue
+                        else:
+                            # Все попытки исчерпаны
+                            if self._should_report_error(site):
+                                self.database.update_site_status(site_id, 'error', error_message=error_msg)
+                                return 'error', error_msg, None
+                            else:
+                                return 'ok', f'Временная проблема: {error_msg}', None
+            
+            except requests.exceptions.Timeout as e:
+                # Таймаут - часто временная проблема, повторяем попытку
+                last_exception = e
+                if attempt < config.MAX_RETRIES - 1:
+                    time.sleep(config.RETRY_DELAY)
+                    continue
+                else:
+                    # Все попытки исчерпаны
+                    error_msg = f"Таймаут запроса (>{config.REQUEST_TIMEOUT}с) после {config.MAX_RETRIES} попыток"
+                    # Проверяем последовательные ошибки перед установкой статуса error
+                    if self._should_report_error(site):
+                        self.database.update_site_status(site_id, 'error', error_message=error_msg)
+                        return 'error', error_msg, None
+                    else:
+                        # Временная ошибка, не отправляем уведомление
+                        return 'ok', f'Временная проблема: {error_msg}', None
+            
+            except requests.exceptions.ConnectionError as e:
+                # Ошибка подключения - часто временная проблема (DNS, сеть), повторяем попытку
+                last_exception = e
+                if attempt < config.MAX_RETRIES - 1:
+                    time.sleep(config.RETRY_DELAY)
+                    continue
+                else:
+                    # Все попытки исчерпаны
+                    error_msg = "Ошибка подключения к сайту"
+                    # Проверяем последовательные ошибки перед установкой статуса error
+                    if self._should_report_error(site):
+                        self.database.update_site_status(site_id, 'error', error_message=error_msg)
+                        return 'error', error_msg, None
+                    else:
+                        # Временная ошибка, не отправляем уведомление
+                        return 'ok', f'Временная проблема: {error_msg}', None
+            
+            except requests.exceptions.RequestException as e:
+                # Другие ошибки запроса - повторяем попытку
+                last_exception = e
+                if attempt < config.MAX_RETRIES - 1:
+                    time.sleep(config.RETRY_DELAY)
+                    continue
+                else:
+                    # Все попытки исчерпаны
+                    error_msg = f"Ошибка запроса: {str(e)}"
+                    if self._should_report_error(site):
+                        self.database.update_site_status(site_id, 'error', error_message=error_msg)
+                        return 'error', error_msg, None
+                    else:
+                        return 'ok', f'Временная проблема: {error_msg}', None
+            
+            except Exception as e:
+                # Неожиданные ошибки - не повторяем, сразу сообщаем
+                error_msg = f"Неожиданная ошибка: {str(e)}"
                 self.database.update_site_status(site_id, 'error', error_message=error_msg)
                 return 'error', error_msg, None
-            
-            # Получаем содержимое страницы с правильной кодировкой
-            content = self._decode_response_content(response)
-            
-            # Проверяем минимальную длину сырого контента (до очистки)
-            if len(content) < config.MIN_CONTENT_LENGTH:
-                # Не считаем это фатальной ошибкой: продолжаем, но пометим предупреждение в сообщении
-                # Основное решение по уведомлениям будет применено на уровне scheduler
-                pass
-            
-            # Извлекаем основной контент (убираем HTML теги)
-            soup = BeautifulSoup(content, 'html.parser')
-            
-            # Убираем скрипты, стили и другие технические элементы
-            for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
-                script.decompose()
-            
-            # Получаем чистый текст
-            clean_text = soup.get_text()
-            
-            # Убираем лишние пробелы и переносы строк
-            clean_text = ' '.join(clean_text.split())
-            
-            # Проверяем минимальную длину очищенного текста
-            is_small_content = len(clean_text) < config.MIN_CONTENT_LENGTH
-            
-            # Вычисляем хеш контента
-            content_hash = hashlib.sha256(clean_text.encode('utf-8')).hexdigest()
-            
-            # Проверяем, изменился ли контент
-            last_hash = site.get('last_content_hash')
-            last_content = site.get('last_content', '')
-            
-            if last_hash is None:
-                # Первая проверка - просто сохраняем хеш и контент
-                self.database.update_site_status(site_id, 'ok', content_hash, clean_text)
-                return 'ok', 'Сайт доступен, контент сохранен', content_hash
-            
-            elif last_hash != content_hash:
-                # Контент изменился - проверяем значительность изменений
-                is_significant, change_description = self._is_significant_change(last_content, clean_text)
-                
-                if is_significant:
-                    # Значительные изменения - обновляем хеш и контент, отправляем уведомление
-                    self.database.update_site_status(site_id, 'changed', content_hash, clean_text)
-                    return 'changed', f'Сайт доступен: {change_description}', content_hash
-                else:
-                    # Незначительные изменения - НЕ обновляем хеш, НЕ отправляем уведомление
-                    self.database.update_site_status(site_id, 'minor_change', last_hash, last_content)
-                    return 'ok', f'Сайт доступен: {change_description}', last_hash
-            
+        
+        # Если все попытки не удались, но мы дошли до этого места - возвращаем последнюю ошибку
+        if last_exception:
+            error_msg = f"Ошибка после {config.MAX_RETRIES} попыток: {str(last_exception)}"
+            if self._should_report_error(site):
+                self.database.update_site_status(site_id, 'error', error_message=error_msg)
+                return 'error', error_msg, None
             else:
-                # Контент не изменился
-                # Если контента мало, но хеш не меняется — считаем "ok" без уведомления
-                self.database.update_site_status(site_id, 'ok', content_hash, clean_text)
-                if is_small_content:
-                    return 'ok', f'Сайт доступен, мало контента: {len(clean_text)} символов (хеш без изменений)', content_hash
-                return 'ok', 'Сайт доступен, контент не изменился', content_hash
-                
-        except requests.exceptions.Timeout:
-            error_msg = f"Таймаут запроса (>{config.REQUEST_TIMEOUT}с)"
-            self.database.update_site_status(site_id, 'error', error_message=error_msg)
-            return 'error', error_msg, None
-            
-        except requests.exceptions.ConnectionError:
-            error_msg = "Ошибка подключения к сайту"
-            self.database.update_site_status(site_id, 'error', error_message=error_msg)
-            return 'error', error_msg, None
-            
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Ошибка запроса: {str(e)}"
-            self.database.update_site_status(site_id, 'error', error_message=error_msg)
-            return 'error', error_msg, None
-            
-        except Exception as e:
-            error_msg = f"Неожиданная ошибка: {str(e)}"
-            self.database.update_site_status(site_id, 'error', error_message=error_msg)
-            return 'error', error_msg, None
+                return 'ok', f'Временная проблема: {error_msg}', None
     
     def check_all_sites(self) -> Dict[str, list]:
         """
@@ -337,6 +403,58 @@ class SiteMonitor:
         except Exception as e:
             return False, f"Неожиданная ошибка: {str(e)}", ""
 
+    def _should_report_error(self, site: Dict) -> bool:
+        """
+        Определяет, нужно ли отправлять уведомление об ошибке
+        Учитывает количество последовательных ошибок
+        
+        Args:
+            site (Dict): Данные сайта
+            
+        Returns:
+            bool: True если нужно отправить уведомление, False если это временная проблема
+        """
+        # Получаем количество последовательных ошибок из базы данных
+        consecutive_errors = site.get('consecutive_errors', 0)
+        
+        # Если ошибок меньше порога - не отправляем уведомление (считаем временной проблемой)
+        if consecutive_errors < config.CONSECUTIVE_ERROR_THRESHOLD:
+            # Увеличиваем счетчик последовательных ошибок
+            self._increment_consecutive_errors(site['id'])
+            return False
+        
+        # Достигнут порог - сбрасываем счетчик и отправляем уведомление
+        self._reset_consecutive_errors(site['id'])
+        return True
+    
+    def _increment_consecutive_errors(self, site_id: int):
+        """
+        Увеличивает счетчик последовательных ошибок для сайта
+        
+        Args:
+            site_id (int): ID сайта
+        """
+        sites = self.database._load_sites()
+        for s in sites:
+            if s['id'] == site_id:
+                s['consecutive_errors'] = s.get('consecutive_errors', 0) + 1
+                self.database._save_sites(sites)
+                break
+    
+    def _reset_consecutive_errors(self, site_id: int):
+        """
+        Сбрасывает счетчик последовательных ошибок для сайта (при успешной проверке)
+        
+        Args:
+            site_id (int): ID сайта
+        """
+        sites = self.database._load_sites()
+        for s in sites:
+            if s['id'] == site_id:
+                s['consecutive_errors'] = 0
+                self.database._save_sites(sites)
+                break
+    
     def get_site_summary(self, site: Dict) -> str:
         """
         Формирует краткую сводку по сайту для уведомлений

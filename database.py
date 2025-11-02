@@ -103,7 +103,8 @@ class SitesDatabase:
             'last_content': None,  # Сохраняем последний контент для сравнения
             'is_active': True,
             'check_count': 0,
-            'error_count': 0
+            'error_count': 0,
+            'consecutive_errors': 0  # Счетчик последовательных ошибок для фильтрации ложных срабатываний
         }
         
         sites.append(new_site)

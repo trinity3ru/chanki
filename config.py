@@ -23,8 +23,10 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 # Настройки мониторинга
 # Базовое значение из окружения (используется как дефолт, если settings.json отсутствует)
 CHECK_INTERVAL_HOURS = int(os.getenv('CHECK_INTERVAL_HOURS', 6))  # Интервал проверки в часах
-REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', 10))  # Таймаут HTTP запроса в секундах
-MAX_RETRIES = int(os.getenv('MAX_RETRIES', 3))  # Максимальное количество попыток при ошибке
+REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', 15))  # Таймаут HTTP запроса в секундах (увеличен с 10 до 15)
+MAX_RETRIES = int(os.getenv('MAX_RETRIES', 3))  # Максимальное количество попыток при ошибке (используется для retry)
+RETRY_DELAY = int(os.getenv('RETRY_DELAY', 3))  # Задержка между повторными попытками в секундах
+CONSECUTIVE_ERROR_THRESHOLD = int(os.getenv('CONSECUTIVE_ERROR_THRESHOLD', 2))  # Количество последовательных ошибок перед уведомлением
 
 # Настройки детекции изменений
 CONTENT_HASH_ALGORITHM = os.getenv('CONTENT_HASH_ALGORITHM', 'sha256')  # Алгоритм хеширования
