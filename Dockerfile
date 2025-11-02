@@ -17,6 +17,8 @@ ENV PATH="/root/.local/bin:$PATH"
 COPY requirements.txt .
 
 # Устанавливаем Python зависимости
+# Увеличиваем таймаут для загрузки больших пакетов (например, lxml)
+ENV UV_HTTP_TIMEOUT=120
 RUN uv pip install --system -r requirements.txt
 
 # Копируем исходный код приложения
