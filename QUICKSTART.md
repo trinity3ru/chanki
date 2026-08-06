@@ -51,8 +51,8 @@ source ~/.zshrc
 
 - ✅ Проверка каждые 6 часов
 - 📱 Уведомления в Telegram
-- 📝 Логи в monitor.log
-- 💾 Данные в sites.json
+- 📝 Логи в logs/monitor.log
+- 💾 Данные в data/sites.json (снимки страниц — в data/snapshots/)
 
 ---
 

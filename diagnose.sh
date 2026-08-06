@@ -1,122 +1,69 @@
 #!/bin/bash
 
-# Скрипт диагностики приложения мониторинга сайтов
+# Диагностика бота мониторинга сайтов
 # Использование: ./diagnose.sh
+#
+# Только чтение: ничего не запускает, не перезапускает и не удаляет.
 
-echo "🔍 Диагностика приложения мониторинга сайтов"
-echo "============================================="
+set -uo pipefail
 
-# Проверяем Docker развертывание
-if [ -f "docker-compose.yml" ] && command -v docker-compose &> /dev/null; then
-    echo ""
-    echo "🐳 DOCKER РАЗВЕРТЫВАНИЕ ОБНАРУЖЕНО"
-    echo "================================="
-    
-    echo "📊 Статус контейнеров:"
-    docker-compose ps
-    
-    echo ""
-    echo "📝 Последние логи контейнера:"
-    docker-compose logs --tail=20 site-monitor
-    
-    echo ""
-    echo "💾 Использование ресурсов:"
-    docker stats site-monitor-bot --no-stream 2>/dev/null || echo "Контейнер не запущен"
-    
-else
-    echo ""
-    echo "📦 ОБЫЧНОЕ РАЗВЕРТЫВАНИЕ"
-    echo "======================"
-    
-    echo "🔍 Поиск процессов Python:"
-    ps aux | grep python | grep -v grep
-    
-    echo ""
-    echo "📝 Локальные логи (последние 20 строк):"
-    if [ -f "monitor.log" ]; then
-        tail -20 monitor.log
-    else
-        echo "Файл monitor.log не найден"
-    fi
-    
-    echo ""
-    echo "🔧 Статус systemd сервиса (если используется):"
-    sudo systemctl status site-monitor 2>/dev/null || echo "Сервис site-monitor не найден"
-fi
+cd "$(dirname "$0")"
+
+echo "🔍 Диагностика бота мониторинга сайтов"
+echo "======================================"
+
+echo ""
+echo "📊 Статус контейнера:"
+docker compose ps
+
+echo ""
+echo "💾 Использование ресурсов:"
+docker stats chanki-site-monitor --no-stream 2>/dev/null || echo "Контейнер не запущен"
+
+echo ""
+echo "📝 Последние логи (50 строк):"
+docker compose logs --tail=50 site-monitor
 
 echo ""
 echo "🔐 ПРОВЕРКА КОНФИГУРАЦИИ"
 echo "======================="
 
-echo "📄 Содержимое .env файла:"
 if [ -f ".env" ]; then
-    cat .env | sed 's/TELEGRAM_BOT_TOKEN=.*/TELEGRAM_BOT_TOKEN=***скрыто***/'
+    # Значения не показываем - только наличие ключей
+    echo "✅ Файл .env найден. Заданные переменные:"
+    grep -oE '^[A-Z_]+' .env | sed 's/^/   /'
+
+    if grep -qE 'TELEGRAM_BOT_TOKEN=(ваш_токен_бота_здесь|your_token|test_token)' .env; then
+        echo "❌ В .env остался placeholder вместо реального токена!"
+    fi
 else
     echo "❌ Файл .env не найден!"
 fi
 
 echo ""
-echo "🌐 ПРОВЕРКА СЕТЕВОГО ПОДКЛЮЧЕНИЯ"
-echo "==============================="
+echo "💽 ДАННЫЕ ПРИЛОЖЕНИЯ"
+echo "==================="
 
-echo "📡 Проверка доступности Telegram API:"
-if curl -s --connect-timeout 5 "https://api.telegram.org" > /dev/null; then
-    echo "✅ Telegram API доступен"
-else
-    echo "❌ Telegram API недоступен"
-fi
+echo "📁 Volume'ы проекта:"
+docker volume ls --filter 'name=chanki' --format '   {{.Name}}'
 
 echo ""
-echo "🔍 Проверка DNS:"
-if nslookup api.telegram.org > /dev/null 2>&1; then
-    echo "✅ DNS работает"
-else
-    echo "❌ Проблемы с DNS"
-fi
+echo "📊 Размер данных внутри контейнера:"
+docker compose exec -T site-monitor du -sh /app/data /app/logs 2>/dev/null \
+    || echo "   Контейнер не запущен, размер недоступен"
 
 echo ""
-echo "📂 ФАЙЛЫ ПРОЕКТА"
-echo "==============="
-
-echo "📋 Основные файлы:"
-ls -la *.py *.json *.log 2>/dev/null || echo "Некоторые файлы отсутствуют"
-
-echo ""
-echo "💾 Размер файлов данных:"
-du -sh sites.json monitor.log 2>/dev/null || echo "Файлы данных не найдены"
-
-echo ""
-echo "🏥 РЕКОМЕНДАЦИИ ПО ИСПРАВЛЕНИЮ"
+echo "🌐 ПРОВЕРКА СЕТИ ИЗ КОНТЕЙНЕРА"
 echo "============================="
 
-if [ ! -f ".env" ]; then
-    echo "❌ Создайте файл .env с токеном бота"
-    echo "   echo 'TELEGRAM_BOT_TOKEN=ваш_токен' > .env"
-fi
-
-if [ -f ".env" ]; then
-    if grep -q "test_token\|ваш_токен\|your_token" .env; then
-        echo "❌ Замените тестовый токен на реальный в файле .env"
-    fi
-fi
+docker compose exec -T site-monitor python -c \
+    "import requests; requests.get('https://api.telegram.org', timeout=5); print('✅ Telegram API доступен')" \
+    2>/dev/null || echo "❌ Telegram API недоступен или контейнер не запущен"
 
 echo ""
-echo "📞 ДЛЯ ПОЛУЧЕНИЯ ПОДРОБНЫХ ЛОГОВ:"
-echo "================================"
-
-if [ -f "docker-compose.yml" ]; then
-    echo "🐳 Docker логи в реальном времени:"
-    echo "   docker-compose logs -f site-monitor"
-    echo ""
-    echo "🐳 Перезапуск контейнера:"
-    echo "   docker-compose restart site-monitor"
-else
-    echo "📦 Локальные логи в реальном времени:"
-    echo "   tail -f monitor.log"
-    echo ""
-    echo "📦 Ручной запуск для отладки:"
-    echo "   source setup_uv.sh && uv run main.py"
-fi
-
+echo "📞 ПОЛЕЗНЫЕ КОМАНДЫ"
+echo "=================="
+echo "   Логи в реальном времени:  docker compose logs -f site-monitor"
+echo "   Перезапуск:               docker compose restart site-monitor"
 echo ""
 echo "✅ Диагностика завершена!"

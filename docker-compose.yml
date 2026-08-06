@@ -1,35 +1,35 @@
-version: '3.8'
-
 services:
   site-monitor:
     build: .
-    container_name: site-monitor-bot
+    container_name: chanki-site-monitor
     restart: unless-stopped
+
     environment:
-      # Токен бота будет загружен из .env файла
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      
+      # Токен бота подставляется из .env рядом с этим файлом
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN не задан в .env}
+
       # Дополнительные настройки (опционально)
-      - CHECK_INTERVAL_HOURS=6
-      - REQUEST_TIMEOUT=10
-      - MIN_CONTENT_LENGTH=100
-      
-      # Пути к файлам в контейнере
-      - SITES_DATABASE_FILE=host_data/sites.json
-      - LOG_FILE=logs/monitor.log
-      
+      - CHECK_INTERVAL_HOURS=${CHECK_INTERVAL_HOURS:-6}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-10}
+      - MIN_CONTENT_LENGTH=${MIN_CONTENT_LENGTH:-100}
+
+      # Пути к файлам в контейнере (лежат в именованных volume'ах)
+      - SITES_DATABASE_FILE=/app/data/sites.json
+      - SNAPSHOTS_DIR=/app/data/snapshots
+      - LOG_FILE=/app/logs/monitor.log
+
     volumes:
-      # Сохраняем данные и логи на хосте
-      - ./data:/app/data
-      - ./logs:/app/logs
-      # Монтируем только директории, файлы создаются приложением
-      - ./:/app/host_data
-      
+      # Только собственные volume'ы проекта, каталог с кодом и .env в контейнер не пробрасываем
+      - chanki-data:/app/data
+      - chanki-logs:/app/logs
+
+    # Порты НЕ публикуем: бот работает через long polling и web-интерфейса не имеет.
+    # На хосте 80/443 заняты Nginx Proxy Manager, трогать их нельзя.
+
     # Настройки для безопасности
     security_opt:
       - no-new-privileges:true
-    read_only: false
-    
+
     # Ограничения ресурсов
     deploy:
       resources:
@@ -39,19 +39,29 @@ services:
         reservations:
           memory: 128M
           cpus: '0.2'
-    
-    # Политика перезапуска
+
+    # Чтобы логи контейнера не съели диск на общем сервере
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('https://api.telegram.org', timeout=5)"]
-      interval: 30s
+      interval: 2m
       timeout: 10s
       retries: 3
       start_period: 60s
-      
-    # Сетевые настройки
+
+    # Собственная сеть проекта, к существующим сетям не подключаемся
     networks:
-      - site-monitor-network
+      - chanki-net
+
+volumes:
+  chanki-data:
+  chanki-logs:
 
 networks:
-  site-monitor-network:
+  chanki-net:
     driver: bridge

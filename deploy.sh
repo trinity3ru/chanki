@@ -1,75 +1,75 @@
 #!/bin/bash
 
-# Скрипт для развертывания приложения мониторинга сайтов на VPS
+# Развертывание бота мониторинга сайтов на сервере с уже установленным Docker
 # Использование: ./deploy.sh
+#
+# Скрипт ничего не устанавливает в систему и не трогает чужие контейнеры,
+# сети и volume'ы - работает только с compose-проектом из этого каталога.
 
-set -e
+set -euo pipefail
 
-echo "🚀 Развертывание приложения мониторинга сайтов на VPS"
-echo "=================================================="
+cd "$(dirname "$0")"
 
-# Проверяем наличие Python
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python3 не найден. Устанавливаем..."
-    sudo apt update
-    sudo apt install -y python3 python3-pip python3-venv
+echo "🚀 Развертывание бота мониторинга сайтов"
+echo "========================================"
+
+# Docker и Compose v2 должны быть установлены заранее
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker не найден. Установите Docker и запустите скрипт повторно."
+    exit 1
 fi
 
-# Проверяем наличие UV
-if ! command -v uv &> /dev/null; then
-    echo "📦 Устанавливаем UV..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    source $HOME/.local/bin/env
+if ! docker compose version &> /dev/null; then
+    echo "❌ Docker Compose v2 не найден (нужна команда 'docker compose')."
+    exit 1
 fi
 
-# Создаем виртуальное окружение
-echo "🔧 Создаем виртуальное окружение..."
-python3 -m venv venv
-source venv/bin/activate
+# Проверяем конфигурацию
+if [ ! -f .env ]; then
+    echo "❌ Файл .env не найден!"
+    echo "   cp docker.env.example .env && nano .env"
+    exit 1
+fi
 
-# Устанавливаем зависимости
-echo "📚 Устанавливаем зависимости..."
-pip install -r requirements.txt
+if grep -qE 'TELEGRAM_BOT_TOKEN=(ваш_токен_бота_здесь|your_token|test_token)' .env; then
+    echo "❌ В .env остался placeholder вместо реального токена бота."
+    exit 1
+fi
 
-# Создаем systemd сервис
-echo "⚙️ Создаем systemd сервис..."
-sudo tee /etc/systemd/system/site-monitor.service > /dev/null <<EOF
-[Unit]
-Description=Site Monitoring Bot
-After=network.target
+# Имя контейнера должно быть свободно, иначе конфликт с соседним проектом
+existing=$(docker ps -a --filter 'name=^chanki-site-monitor$' --format '{{.Names}}' || true)
+owned=$(docker compose ps -aq site-monitor 2>/dev/null || true)
 
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=$(pwd)
-Environment=PATH=$(pwd)/venv/bin
-ExecStart=$(pwd)/venv/bin/python main.py
-Restart=always
-RestartSec=10
+if [ -n "$existing" ] && [ -z "$owned" ]; then
+    echo "❌ Контейнер chanki-site-monitor занят другим проектом."
+    echo "   Измените container_name в docker-compose.yml и повторите."
+    exit 1
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
+echo "🔍 Проверяем конфигурацию Compose..."
+docker compose config > /dev/null
 
-# Перезагружаем systemd и включаем сервис
-echo "🔄 Настраиваем автозапуск..."
-sudo systemctl daemon-reload
-sudo systemctl enable site-monitor
+echo "🏗️ Собираем образ..."
+docker compose build
 
+echo "🚀 Запускаем контейнер..."
+docker compose up -d
+
+echo ""
+echo "📊 Статус:"
+docker compose ps
+
+echo ""
+echo "📝 Последние логи:"
+docker compose logs --tail=20 site-monitor
+
+echo ""
 echo "✅ Развертывание завершено!"
 echo ""
-echo "📋 Следующие шаги:"
-echo "1. Создайте файл .env с токеном бота:"
-echo "   echo 'TELEGRAM_BOT_TOKEN=ваш_токен' > .env"
+echo "📋 Управление:"
+echo "  🔍 Логи:        docker compose logs -f site-monitor"
+echo "  🔄 Перезапуск:  docker compose restart site-monitor"
+echo "  ⏹️  Остановка:   docker compose stop site-monitor"
+echo "  📊 Статус:      docker compose ps"
 echo ""
-echo "2. Запустите сервис:"
-echo "   sudo systemctl start site-monitor"
-echo ""
-echo "3. Проверьте статус:"
-echo "   sudo systemctl status site-monitor"
-echo ""
-echo "4. Просмотр логов:"
-echo "   sudo journalctl -u site-monitor -f"
-echo ""
-echo "🎯 Приложение готово к работе!"
-
+echo "📱 Найдите бота в Telegram и отправьте /start"
