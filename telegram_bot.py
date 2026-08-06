@@ -362,7 +362,26 @@ class SiteMonitorBot:
         Returns:
             Application: Готовое приложение python-telegram-bot
         """
-        self.application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+        builder = (
+            Application.builder()
+            .token(config.TELEGRAM_BOT_TOKEN)
+            .connect_timeout(config.CONNECT_TIMEOUT)
+            .read_timeout(config.READ_TIMEOUT)
+            .get_updates_connect_timeout(config.CONNECT_TIMEOUT)
+            .get_updates_read_timeout(config.READ_TIMEOUT)
+        )
+
+        # Если api.telegram.org недоступен с сервера напрямую - ходим через прокси.
+        # Проверки сайтов прокси не используют: их монитор выполняет сам, с сервера
+        if config.TELEGRAM_PROXY_URL:
+            builder = (
+                builder
+                .proxy(config.TELEGRAM_PROXY_URL)
+                .get_updates_proxy(config.TELEGRAM_PROXY_URL)
+            )
+            self.logger.info("Связь с Telegram настроена через прокси")
+
+        self.application = builder.build()
 
         # Добавляем обработчики команд
         self.application.add_handler(CommandHandler("start", self.start))

@@ -76,8 +76,11 @@ Proxy Host в Nginx Proxy Manager для этого сервиса **не нуж
 | Переменная | По умолчанию | Описание |
 |-----------|:------------:|----------|
 | `TELEGRAM_BOT_TOKEN` | — | **обязательно**, токен бота |
+| `TELEGRAM_PROXY_URL` | пусто | прокси для Telegram, если API недоступен напрямую |
+| `CONNECT_TIMEOUT` | 20 | таймаут соединения с Telegram в секундах |
+| `READ_TIMEOUT` | 20 | таймаут чтения ответа Telegram в секундах |
 | `CHECK_INTERVAL_HOURS` | 6 | интервал проверки в часах |
-| `REQUEST_TIMEOUT` | 10 | таймаут HTTP запроса в секундах |
+| `REQUEST_TIMEOUT` | 10 | таймаут HTTP запроса к проверяемым сайтам |
 | `MIN_CONTENT_LENGTH` | 100 | минимальная длина контента |
 
 Если `TELEGRAM_BOT_TOKEN` не задан, `docker compose` откажется стартовать с
@@ -133,6 +136,29 @@ docker compose down -v       # ⚠️ удалит список сайтов и 
 
 **Контейнер перезапускается по кругу.** Смотрите `docker compose logs
 site-monitor`. Чаще всего — неверный токен: `telegram.error.InvalidToken`.
+
+**`Не удалось связаться с Telegram (TimedOut)` при каждом старте.** Токен ни
+при чём: при неверном токене Telegram отвечает `Unauthorized` мгновенно, а
+таймаут означает, что соединение не устанавливается. Проверьте с хоста:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code} за %{time_total}s\n' --max-time 20 https://api.telegram.org
+curl -sS -o /dev/null -w '%{http_code} за %{time_total}s\n' --max-time 20 https://www.google.com
+```
+
+Если google отвечает `200`, а Telegram — нет, значит трафик на сети Telegram
+блокируется провайдером или страной размещения. Настройками Docker это не
+лечится, нужен прокси:
+
+```bash
+echo 'TELEGRAM_PROXY_URL=socks5://user:pass@proxy-host:1080' >> .env
+docker compose up -d
+```
+
+В логах при успехе появится `Связь с Telegram настроена через прокси`.
+Поддерживаются `http://` и `socks5://`. Проверки сайтов через прокси не идут:
+монитор всегда обращается к сайтам напрямую с сервера, чтобы видеть их так же,
+как их видит сам сервер.
 
 **`Bad Request: chat not found` в логах.** Пользователь не начинал диалог с
 ботом или заблокировал его. Уведомления такому пользователю не дойдут,

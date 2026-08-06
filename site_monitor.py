@@ -32,6 +32,11 @@ class SiteMonitor:
         # requests.Session не потокобезопасна, поэтому проверки сериализуем
         self._check_lock = threading.RLock()
 
+        # Сайты проверяем всегда напрямую с сервера, даже если для Telegram
+        # заданы HTTPS_PROXY/ALL_PROXY: мониторинг должен видеть сайт так же,
+        # как его видит сервер, а не прокси
+        self.session.trust_env = False
+
         # Настройка User-Agent для более надежных запросов
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'

@@ -8,6 +8,14 @@ services:
       # Токен бота подставляется из .env рядом с этим файлом
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN не задан в .env}
 
+      # Прокси для Telegram, если api.telegram.org недоступен с сервера напрямую.
+      # Пусто - идем напрямую. Проверки сайтов через прокси не ходят в любом случае
+      - TELEGRAM_PROXY_URL=${TELEGRAM_PROXY_URL:-}
+
+      # Таймауты соединения с Telegram (секунды)
+      - CONNECT_TIMEOUT=${CONNECT_TIMEOUT:-20}
+      - READ_TIMEOUT=${READ_TIMEOUT:-20}
+
       # Дополнительные настройки (опционально)
       - CHECK_INTERVAL_HOURS=${CHECK_INTERVAL_HOURS:-6}
       - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-10}
@@ -47,8 +55,10 @@ services:
         max-size: "10m"
         max-file: "3"
 
+    # Проверяем доступность Telegram тем же путем, каким ходит бот:
+    # напрямую или через прокси, иначе статус врал бы при работе через прокси
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('https://api.telegram.org', timeout=5)"]
+      test: ["CMD", "python", "-c", "import os, requests; p = os.getenv('TELEGRAM_PROXY_URL'); requests.get('https://api.telegram.org', timeout=10, proxies={'http': p, 'https': p} if p else None)"]
       interval: 2m
       timeout: 10s
       retries: 3

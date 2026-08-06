@@ -10,6 +10,16 @@ load_dotenv()
 # Настройки Telegram бота
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
+# Прокси для связи с Telegram. Нужен, если api.telegram.org недоступен
+# с сервера напрямую. Формат: http://host:port или socks5://user:pass@host:port
+# Пусто - идем напрямую. На проверки сайтов не влияет: они всегда идут с сервера
+TELEGRAM_PROXY_URL = os.getenv('TELEGRAM_PROXY_URL') or None
+
+# Таймауты соединения с Telegram в секундах. По умолчанию библиотека дает 5 с,
+# чего не хватает на медленном канале или через прокси
+CONNECT_TIMEOUT = float(os.getenv('CONNECT_TIMEOUT', 20))
+READ_TIMEOUT = float(os.getenv('READ_TIMEOUT', 20))
+
 # Настройки мониторинга
 CHECK_INTERVAL_HOURS = int(os.getenv('CHECK_INTERVAL_HOURS', 6))  # Интервал проверки в часах
 REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', 10))  # Таймаут HTTP запроса в секундах

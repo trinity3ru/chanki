@@ -6,6 +6,7 @@ import os
 import sys
 import logging
 from datetime import datetime
+from telegram.error import NetworkError
 import config
 from telegram_bot import SiteMonitorBot
 from scheduler import MonitoringScheduler
@@ -81,8 +82,19 @@ class SiteMonitoringApp:
 
             self.logger.info("Приложение корректно завершено")
 
+        except NetworkError as e:
+            # Самая частая причина - Telegram недоступен с этого сервера
+            self.logger.error(
+                f"Не удалось связаться с Telegram ({type(e).__name__}: {e}). "
+                f"Проверьте доступность API с сервера: "
+                f"curl -sS --max-time 15 https://api.telegram.org "
+                f"Если он блокируется, задайте TELEGRAM_PROXY_URL в .env"
+            )
+            sys.exit(1)
+
         except Exception as e:
-            self.logger.error(f"Ошибка при запуске: {str(e)}")
+            # Полный трейсбек: без типа исключения причину не отличить
+            self.logger.exception(f"Ошибка при запуске: {type(e).__name__}: {e}")
             sys.exit(1)
 
 def main():
