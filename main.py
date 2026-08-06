@@ -11,6 +11,58 @@ import config
 from telegram_bot import SiteMonitorBot
 from scheduler import MonitoringScheduler
 
+LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+
+class RedactingFormatter(logging.Formatter):
+    """
+    Форматтер, вырезающий секреты из сообщений и трейсбеков
+
+    Библиотеки охотно печатают в тексте ошибок и токен бота, и URL прокси
+    вместе с паролем. В логах, которые потом копируют в переписку, им не место.
+    """
+
+    def __init__(self, fmt: str, secrets):
+        """
+        Args:
+            fmt (str): Формат строки лога
+            secrets: Строки, которые нужно скрыть
+        """
+        super().__init__(fmt)
+        # Длинные вперед: иначе короткий секрет испортит вхождение длинного
+        self._secrets = sorted(
+            {s for s in secrets if s and len(s) > 3}, key=len, reverse=True
+        )
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = super().format(record)
+        for secret in self._secrets:
+            message = message.replace(secret, '***')
+        return message
+
+
+def collect_secrets():
+    """
+    Собирает строки, которые нельзя показывать в логах
+
+    Returns:
+        list: Токен бота, URL прокси и его учетные данные
+    """
+    secrets = [config.TELEGRAM_BOT_TOKEN]
+
+    if config.TELEGRAM_PROXY_URL:
+        secrets.append(config.TELEGRAM_PROXY_URL)
+
+        # Отдельно логин:пароль и сам пароль - они могут всплыть без URL
+        userinfo = config.TELEGRAM_PROXY_URL.partition('://')[2].rpartition('@')[0]
+        if userinfo:
+            secrets.append(userinfo)
+            if ':' in userinfo:
+                secrets.append(userinfo.split(':', 1)[1])
+
+    return secrets
+
+
 class SiteMonitoringApp:
     """
     Главный класс приложения для мониторинга сайтов
@@ -55,11 +107,13 @@ class SiteMonitoringApp:
             # Если не можем записать в файл, продолжаем только с консольным выводом
             print(f"⚠️ Не удалось создать лог-файл {config.LOG_FILE}, используем только консольный вывод")
 
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=handlers
-        )
+        # Формат ставим до basicConfig: он не трогает handlers, у которых
+        # форматтер уже задан
+        formatter = RedactingFormatter(LOG_FORMAT, collect_secrets())
+        for handler in handlers:
+            handler.setFormatter(formatter)
+
+        logging.basicConfig(level=logging.INFO, handlers=handlers)
 
     def startup(self):
         """Запуск приложения"""

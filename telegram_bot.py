@@ -4,6 +4,7 @@ Telegram бот для управления мониторингом сайто�
 """
 import asyncio
 import logging
+import re
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from typing import Dict, List
@@ -31,6 +32,36 @@ STATUS_NAME = {
     'minor_change': 'Мелкие правки',
     'unknown': 'Не проверялись'
 }
+
+
+
+# Схемы прокси, которые понимает HTTP-клиент библиотеки
+PROXY_SCHEME_PATTERN = re.compile(r'^(https?|socks5)://')
+
+
+def mask_proxy_url(url: str) -> str:
+    """
+    Прячет логин и пароль в URL прокси
+
+    Нужно, чтобы учетные данные не утекали в логи вместе с сообщениями
+    об ошибках подключения.
+
+    Args:
+        url (str): URL прокси
+
+    Returns:
+        str: URL с замаскированными учетными данными
+    """
+    if '://' not in url:
+        return '***'
+
+    scheme, _, rest = url.partition('://')
+
+    if '@' not in rest:
+        return f"{scheme}://{rest}"
+
+    _, _, host = rest.rpartition('@')
+    return f"{scheme}://***:***@{host}"
 
 
 def split_message(text: str, limit: int = MESSAGE_CHUNK_LIMIT) -> List[str]:
@@ -374,12 +405,24 @@ class SiteMonitorBot:
         # Если api.telegram.org недоступен с сервера напрямую - ходим через прокси.
         # Проверки сайтов прокси не используют: их монитор выполняет сам, с сервера
         if config.TELEGRAM_PROXY_URL:
+            # Проверяем формат до передачи в клиент: иначе он падает с
+            # ValueError, печатая в лог URL целиком, вместе с паролем
+            if not PROXY_SCHEME_PATTERN.match(config.TELEGRAM_PROXY_URL):
+                raise ValueError(
+                    "TELEGRAM_PROXY_URL должен начинаться с http://, https:// или socks5://. "
+                    "Формат вида ip:port:login:password не подходит - "
+                    "запишите его как socks5://login:password@ip:port"
+                )
+
             builder = (
                 builder
                 .proxy(config.TELEGRAM_PROXY_URL)
                 .get_updates_proxy(config.TELEGRAM_PROXY_URL)
             )
-            self.logger.info("Связь с Telegram настроена через прокси")
+            self.logger.info(
+                f"Связь с Telegram настроена через прокси "
+                f"{mask_proxy_url(config.TELEGRAM_PROXY_URL)}"
+            )
 
         self.application = builder.build()
 
