@@ -4,14 +4,9 @@ FROM python:3.11-slim
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Устанавливаем системные зависимости
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Устанавливаем UV для управления зависимостями
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
+# UV берем из официального образа с зафиксированной версией,
+# а не скриптом из интернета: сборка воспроизводима и не тянет curl
+COPY --from=ghcr.io/astral-sh/uv:0.12.18 /uv /bin/uv
 
 # Копируем файл с зависимостями
 COPY requirements.txt .
@@ -21,15 +16,14 @@ RUN uv pip install --system -r requirements.txt
 
 # Копируем исходный код приложения
 COPY *.py ./
-COPY *.md ./
-COPY *.txt ./
-COPY *.sh ./
 
 # Создаем пользователя для безопасности
 RUN useradd -m -u 1000 sitebot
 
-# Создаем директории для данных и логов
-RUN mkdir -p /app/data /app/logs /app/host_data && \
+# Создаем директории для данных и логов.
+# Именованные volume'ы наследуют владельца из образа, поэтому chown здесь
+# избавляет от возни с правами на хосте
+RUN mkdir -p /app/data/snapshots /app/logs && \
     chown -R sitebot:sitebot /app
 
 USER sitebot
@@ -38,8 +32,7 @@ USER sitebot
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Открываем порт (если в будущем добавим веб-интерфейс)
-EXPOSE 8000
+# Порты не открываем: бот работает через long polling, web-интерфейса нет
 
 # Точка входа для запуска приложения
 CMD ["python", "main.py"]

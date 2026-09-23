@@ -10,13 +10,23 @@ load_dotenv()
 # Настройки Telegram бота
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
+# Прокси для связи с Telegram. Нужен, если api.telegram.org недоступен
+# с сервера напрямую. Формат: http://host:port или socks5://user:pass@host:port
+# Пусто - идем напрямую. На проверки сайтов не влияет: они всегда идут с сервера
+TELEGRAM_PROXY_URL = os.getenv('TELEGRAM_PROXY_URL') or None
+
+# Таймауты соединения с Telegram в секундах. По умолчанию библиотека дает 5 с,
+# чего не хватает на медленном канале или через прокси
+CONNECT_TIMEOUT = float(os.getenv('CONNECT_TIMEOUT', 20))
+READ_TIMEOUT = float(os.getenv('READ_TIMEOUT', 20))
+
 # Настройки мониторинга
 CHECK_INTERVAL_HOURS = int(os.getenv('CHECK_INTERVAL_HOURS', 6))  # Интервал проверки в часах
 REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', 10))  # Таймаут HTTP запроса в секундах
-MAX_RETRIES = int(os.getenv('MAX_RETRIES', 3))  # Максимальное количество попыток при ошибке
+FIRST_CHECK_DELAY_SECONDS = int(os.getenv('FIRST_CHECK_DELAY_SECONDS', 60))  # Задержка первой проверки после старта
+ERROR_RETRY_DELAY_SECONDS = int(os.getenv('ERROR_RETRY_DELAY_SECONDS', 30))  # Пауза перед перепроверкой упавшего сайта
 
 # Настройки детекции изменений
-CONTENT_HASH_ALGORITHM = os.getenv('CONTENT_HASH_ALGORITHM', 'sha256')  # Алгоритм хеширования
 MIN_CONTENT_LENGTH = int(os.getenv('MIN_CONTENT_LENGTH', 100))  # Минимальная длина контента
 
 # Настройки порога значительных изменений
@@ -25,9 +35,6 @@ MIN_CHANGED_CHARS = int(os.getenv('MIN_CHANGED_CHARS', 50))  # Минимум и
 MAX_LENGTH_CHANGE_RATIO = float(os.getenv('MAX_LENGTH_CHANGE_RATIO', 0.30))  # 30% - изменение длины
 
 # Пути к файлам
-SITES_DATABASE_FILE = os.getenv('SITES_DATABASE_FILE', 'host_data/sites.json')  # Файл с базой сайтов
+SITES_DATABASE_FILE = os.getenv('SITES_DATABASE_FILE', 'data/sites.json')  # Файл с базой сайтов
+SNAPSHOTS_DIR = os.getenv('SNAPSHOTS_DIR', 'data/snapshots')  # Снимки контента сайтов
 LOG_FILE = os.getenv('LOG_FILE', 'logs/monitor.log')  # Файл логов
-
-# Настройки уведомлений
-NOTIFICATION_RETRY_DELAY = 300  # Задержка между повторными уведомлениями в секундах (5 минут)
-

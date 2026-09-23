@@ -2,46 +2,122 @@
 Telegram бот для управления мониторингом сайтов
 Предоставляет интерфейс для добавления, удаления и просмотра сайтов
 """
+import asyncio
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+import re
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 from typing import Dict, List
 import config
 from database import SitesDatabase
 from site_monitor import SiteMonitor
 
+# Telegram режет сообщения длиннее 4096 символов. Берем запас под суффикс
+# "Часть N/M", который дописывается уже после нарезки
+MESSAGE_CHUNK_LIMIT = 4000
+
+# Отображение статусов последней проверки
+STATUS_EMOJI = {
+    'ok': '✅',
+    'error': '❌',
+    'changed': '🔄',
+    'minor_change': '➖',
+    'unknown': '❓'
+}
+
+STATUS_NAME = {
+    'ok': 'Работают',
+    'error': 'Ошибки',
+    'changed': 'Изменения',
+    'minor_change': 'Мелкие правки',
+    'unknown': 'Не проверялись'
+}
+
+
+
+# Схемы прокси, которые понимает HTTP-клиент библиотеки
+PROXY_SCHEME_PATTERN = re.compile(r'^(https?|socks5)://')
+
+
+def mask_proxy_url(url: str) -> str:
+    """
+    Прячет логин и пароль в URL прокси
+
+    Нужно, чтобы учетные данные не утекали в логи вместе с сообщениями
+    об ошибках подключения.
+
+    Args:
+        url (str): URL прокси
+
+    Returns:
+        str: URL с замаскированными учетными данными
+    """
+    if '://' not in url:
+        return '***'
+
+    scheme, _, rest = url.partition('://')
+
+    if '@' not in rest:
+        return f"{scheme}://{rest}"
+
+    _, _, host = rest.rpartition('@')
+    return f"{scheme}://***:***@{host}"
+
+
+def split_message(text: str, limit: int = MESSAGE_CHUNK_LIMIT) -> List[str]:
+    """
+    Нарезает длинное сообщение на части, помещающиеся в лимит Telegram
+
+    Args:
+        text (str): Исходный текст
+        limit (int): Максимальная длина одной части без суффикса
+
+    Returns:
+        List[str]: Готовые к отправке части сообщения
+    """
+    if len(text) <= limit:
+        return [text]
+
+    parts = [text[i:i + limit] for i in range(0, len(text), limit)]
+    return [f"{part}\n\nЧасть {i}/{len(parts)}" for i, part in enumerate(parts, 1)]
+
+
 class SiteMonitorBot:
     """
     Telegram бот для управления мониторингом сайтов
     """
-    
+
     def __init__(self):
         """Инициализация бота"""
         self.database = SitesDatabase()
         self.monitor = SiteMonitor(self.database)
         self.application = None
-        
-        # Настройка логирования
-        logging.basicConfig(
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            level=logging.INFO
-        )
         self.logger = logging.getLogger(__name__)
-    
+
+    async def _reply(self, update: Update, text: str):
+        """
+        Отправляет ответ пользователю, разбивая длинный текст на части
+
+        Args:
+            update (Update): Обновление от Telegram
+            text (str): Текст ответа
+        """
+        for part in split_message(text):
+            await update.message.reply_text(part)
+
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик команды /start
-        
+
         Args:
             update (Update): Обновление от Telegram
             context (ContextTypes.DEFAULT_TYPE): Контекст бота
         """
-        user_id = update.effective_user.id
         username = update.effective_user.username or "Пользователь"
-        
+
         welcome_text = f"👋 Привет, {username}!\n\n"
         welcome_text += "🤖 Я бот для мониторинга сайтов.\n"
-        welcome_text += "Я буду проверять доступность ваших сайтов каждые 6 часов.\n\n"
+        welcome_text += f"Я буду проверять доступность ваших сайтов каждые {config.CHECK_INTERVAL_HOURS} часов.\n\n"
         welcome_text += "📋 Доступные команды:\n"
         welcome_text += "/add - Добавить сайт для мониторинга\n"
         welcome_text += "/list - Показать все ваши сайты\n"
@@ -50,13 +126,13 @@ class SiteMonitorBot:
         welcome_text += "/check - Запустить проверку сейчас\n"
         welcome_text += "/help - Показать справку\n\n"
         welcome_text += "💡 Чтобы добавить сайт, используйте команду /add"
-        
+
         await update.message.reply_text(welcome_text)
-    
+
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик команды /help
-        
+
         Args:
             update (Update): Обновление от Telegram
             context (ContextTypes.DEFAULT_TYPE): Контекст бота
@@ -70,20 +146,20 @@ class SiteMonitorBot:
         help_text += "📊 /status - Показать статус всех сайтов\n\n"
         help_text += "🔍 /check - Запустить проверку всех сайтов сейчас\n\n"
         help_text += "❓ /help - Показать эту справку\n\n"
-        help_text += "💡 Сайты проверяются автоматически каждые 6 часов"
-        
+        help_text += f"💡 Сайты проверяются автоматически каждые {config.CHECK_INTERVAL_HOURS} часов"
+
         await update.message.reply_text(help_text)
-    
+
     async def add_site(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик команды /add для добавления сайта
-        
+
         Args:
             update (Update): Обновление от Telegram
             context (ContextTypes.DEFAULT_TYPE): Контекст бота
         """
         user_id = update.effective_user.id
-        
+
         if not context.args:
             await update.message.reply_text(
                 "❌ Неверный формат команды!\n\n"
@@ -91,103 +167,85 @@ class SiteMonitorBot:
                 "💡 Пример: /add https://example.com Мой сайт"
             )
             return
-        
+
         url = context.args[0]
         name = ' '.join(context.args[1:]) if len(context.args) > 1 else url
-        
+
         # Простая валидация URL
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
-        
+
         # Добавляем сайт в базу данных
         success = self.database.add_site(url, name, user_id)
-        
+
         if success:
             await update.message.reply_text(
                 f"✅ Сайт успешно добавлен!\n\n"
                 f"🌐 Название: {name}\n"
                 f"🔗 URL: {url}\n\n"
-                f"📊 Сайт будет проверяться каждые 6 часов"
+                f"📊 Сайт будет проверяться каждые {config.CHECK_INTERVAL_HOURS} часов"
             )
         else:
             await update.message.reply_text(
-                f"❌ Ошибка! Сайт {url} уже существует в базе данных."
+                f"❌ Ошибка! Сайт {url} уже есть в вашем списке."
             )
-    
+
     async def list_sites(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик команды /list для показа списка сайтов
-        
+
         Args:
             update (Update): Обновление от Telegram
             context (ContextTypes.DEFAULT_TYPE): Контекст бота
         """
         user_id = update.effective_user.id
         user_sites = self.database.get_sites_by_user(user_id)
-        
+
         if not user_sites:
             await update.message.reply_text(
                 "📭 У вас пока нет добавленных сайтов.\n\n"
                 "💡 Используйте команду /add чтобы добавить первый сайт!"
             )
             return
-        
+
         # Группируем сайты по статусу
-        sites_by_status = {'ok': [], 'error': [], 'changed': [], 'unknown': []}
-        
+        sites_by_status = {status: [] for status in STATUS_NAME}
+
         for site in user_sites:
-            status = site.get('last_status', 'unknown')
-            if status in sites_by_status:
-                sites_by_status[status].append(site)
-            else:
-                sites_by_status['unknown'].append(site)
-        
+            status = site.get('last_status') or 'unknown'
+            if status not in sites_by_status:
+                status = 'unknown'
+            sites_by_status[status].append(site)
+
         # Формируем сообщение
         message = f"📋 Ваши сайты ({len(user_sites)}):\n\n"
-        
+
         for status, sites in sites_by_status.items():
-            if sites:
-                status_emoji = {
-                    'ok': '✅',
-                    'error': '❌',
-                    'changed': '🔄',
-                    'unknown': '❓'
-                }
-                status_name = {
-                    'ok': 'Работают',
-                    'error': 'Ошибки',
-                    'changed': 'Изменения',
-                    'unknown': 'Не проверялись'
-                }
-                
-                message += f"{status_emoji[status]} {status_name[status]}:\n"
-                
-                for site in sites:
-                    message += f"  {site['id']}. {site['name']}\n"
-                    message += f"     {site['url']}\n"
-                
-                message += "\n"
-        
+            if not sites:
+                continue
+
+            message += f"{STATUS_EMOJI[status]} {STATUS_NAME[status]}:\n"
+
+            for site in sites:
+                message += f"  {site['id']}. {site['name']}\n"
+                message += f"     {site['url']}\n"
+
+            message += "\n"
+
         message += "💡 Используйте /status для подробной информации"
-        
-        # Разбиваем длинное сообщение если нужно
-        if len(message) > 4096:
-            parts = [message[i:i+4096] for i in range(0, len(message), 4096)]
-            for i, part in enumerate(parts):
-                await update.message.reply_text(f"{part}\n\nЧасть {i+1}/{len(parts)}")
-        else:
-            await update.message.reply_text(message)
-    
+
+        await self._reply(update, message)
+
     async def remove_site(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик команды /remove для удаления сайта
-        
+
         Args:
             update (Update): Обновление от Telegram
             context (ContextTypes.DEFAULT_TYPE): Контекст бота
         """
         user_id = update.effective_user.id
-        
+
         if not context.args:
             await update.message.reply_text(
                 "❌ Неверный формат команды!\n\n"
@@ -196,136 +254,178 @@ class SiteMonitorBot:
                 "🔍 Используйте /list чтобы увидеть ID ваших сайтов"
             )
             return
-        
+
         try:
             site_id = int(context.args[0])
         except ValueError:
             await update.message.reply_text("❌ ID сайта должен быть числом!")
             return
-        
-        # Проверяем, принадлежит ли сайт пользователю
+
+        # Запоминаем название до удаления, чтобы показать его в ответе
         site = self.database.get_site_by_id(site_id)
-        if not site or site.get('user_id') != user_id:
+        site_name = site['name'] if site else None
+
+        # Удаление проверяет владельца: чужой сайт удалить нельзя
+        if self.database.remove_site(site_id, user_id):
             await update.message.reply_text(
-                f"❌ Сайт с ID {site_id} не найден или не принадлежит вам!"
-            )
-            return
-        
-        # Удаляем сайт
-        success = self.database.remove_site(site_id)
-        
-        if success:
-            await update.message.reply_text(
-                f"✅ Сайт '{site['name']}' успешно удален!"
+                f"✅ Сайт '{site_name}' успешно удален!"
             )
         else:
             await update.message.reply_text(
-                f"❌ Ошибка при удалении сайта '{site['name']}'"
+                f"❌ Сайт с ID {site_id} не найден или не принадлежит вам!"
             )
-    
+
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик команды /status для показа статуса всех сайтов
-        
+
         Args:
             update (Update): Обновление от Telegram
             context (ContextTypes.DEFAULT_TYPE): Контекст бота
         """
         user_id = update.effective_user.id
         user_sites = self.database.get_sites_by_user(user_id)
-        
+
         if not user_sites:
             await update.message.reply_text(
                 "📭 У вас пока нет добавленных сайтов.\n\n"
                 "💡 Используйте команду /add чтобы добавить первый сайт!"
             )
             return
-        
+
         message = f"📊 Статус ваших сайтов ({len(user_sites)}):\n\n"
-        
+
         for site in user_sites:
             message += self.monitor.get_site_summary(site)
             message += "\n" + "─" * 40 + "\n\n"
-        
-        # Разбиваем длинное сообщение если нужно
-        if len(message) > 4096:
-            parts = [message[i:i+4096] for i in range(0, len(message), 4096)]
-            for i, part in enumerate(parts):
-                await update.message.reply_text(f"{part}\n\nЧасть {i+1}/{len(parts)}")
-        else:
-            await update.message.reply_text(message)
-    
+
+        await self._reply(update, message)
+
+    def _check_user_sites(self, user_sites: List[Dict]) -> Dict[str, list]:
+        """
+        Синхронно проверяет сайты пользователя
+
+        Вынесено в отдельный метод, чтобы выполняться в рабочем потоке:
+        requests блокирующий, и в event loop бота ему делать нечего.
+
+        Args:
+            user_sites (List[Dict]): Сайты пользователя
+
+        Returns:
+            Dict[str, list]: Результаты проверки по категориям
+        """
+        results = {'ok': [], 'error': [], 'changed': []}
+
+        for site in user_sites:
+            if not site.get('is_active', True):
+                continue
+
+            status, message, content_hash = self.monitor.check_site(site)
+            results[status].append({
+                'site': site,
+                'message': message,
+                'content_hash': content_hash
+            })
+
+        return results
+
     async def check_now(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик команды /check для запуска проверки сейчас
-        
+
         Args:
             update (Update): Обновление от Telegram
             context (ContextTypes.DEFAULT_TYPE): Контекст бота
         """
         user_id = update.effective_user.id
         user_sites = self.database.get_sites_by_user(user_id)
-        
+
         if not user_sites:
             await update.message.reply_text(
                 "📭 У вас пока нет добавленных сайтов для проверки."
             )
             return
-        
+
         # Запускаем проверку
         await update.message.reply_text("🔍 Запускаю проверку ваших сайтов...")
-        
+
         try:
-            # Проверяем только сайты пользователя
-            results = {'ok': [], 'error': [], 'changed': []}
-            
-            for site in user_sites:
-                if site.get('is_active', True):
-                    status, message, content_hash = self.monitor.check_site(site)
-                    results[status].append({
-                        'site': site,
-                        'message': message,
-                        'content_hash': content_hash
-                    })
-            
+            results = await asyncio.to_thread(self._check_user_sites, user_sites)
+
             # Формируем отчет
             report = f"📊 Результаты проверки ({len(user_sites)} сайтов):\n\n"
             report += f"✅ Работают: {len(results['ok'])}\n"
             report += f"❌ Ошибки: {len(results['error'])}\n"
             report += f"🔄 Изменения: {len(results['changed'])}\n\n"
-            
+
             if results['error']:
                 report += "❌ Сайты с ошибками:\n"
                 for result in results['error']:
                     report += f"  • {result['site']['name']}: {result['message']}\n"
                 report += "\n"
-            
+
             if results['changed']:
                 report += "🔄 Сайты с изменениями:\n"
                 for result in results['changed']:
                     report += f"  • {result['site']['name']}: {result['message']}\n"
                 report += "\n"
-            
-            await update.message.reply_text(report)
-            
+
+            await self._reply(update, report)
+
         except Exception as e:
+            self.logger.error(f"Ошибка при ручной проверке: {str(e)}")
             await update.message.reply_text(f"❌ Ошибка при проверке: {str(e)}")
-    
+
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
         """
         Обработчик ошибок бота
-        
+
         Args:
             update (object): Обновление от Telegram
             context (ContextTypes.DEFAULT_TYPE): Контекст бота
         """
         self.logger.error(f"Exception while handling an update: {context.error}")
-    
-    def run(self):
-        """Запуск бота"""
-        # Создаем приложение
-        self.application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
-        
+
+    def build(self) -> Application:
+        """
+        Собирает приложение бота и регистрирует обработчики
+
+        Returns:
+            Application: Готовое приложение python-telegram-bot
+        """
+        builder = (
+            Application.builder()
+            .token(config.TELEGRAM_BOT_TOKEN)
+            .connect_timeout(config.CONNECT_TIMEOUT)
+            .read_timeout(config.READ_TIMEOUT)
+            .get_updates_connect_timeout(config.CONNECT_TIMEOUT)
+            .get_updates_read_timeout(config.READ_TIMEOUT)
+        )
+
+        # Если api.telegram.org недоступен с сервера напрямую - ходим через прокси.
+        # Проверки сайтов прокси не используют: их монитор выполняет сам, с сервера
+        if config.TELEGRAM_PROXY_URL:
+            # Проверяем формат до передачи в клиент: иначе он падает с
+            # ValueError, печатая в лог URL целиком, вместе с паролем
+            if not PROXY_SCHEME_PATTERN.match(config.TELEGRAM_PROXY_URL):
+                raise ValueError(
+                    "TELEGRAM_PROXY_URL должен начинаться с http://, https:// или socks5://. "
+                    "Формат вида ip:port:login:password не подходит - "
+                    "запишите его как socks5://login:password@ip:port"
+                )
+
+            builder = (
+                builder
+                .proxy(config.TELEGRAM_PROXY_URL)
+                .get_updates_proxy(config.TELEGRAM_PROXY_URL)
+            )
+            self.logger.info(
+                f"Связь с Telegram настроена через прокси "
+                f"{mask_proxy_url(config.TELEGRAM_PROXY_URL)}"
+            )
+
+        self.application = builder.build()
+
         # Добавляем обработчики команд
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CommandHandler("help", self.help_command))
@@ -334,10 +434,21 @@ class SiteMonitorBot:
         self.application.add_handler(CommandHandler("remove", self.remove_site))
         self.application.add_handler(CommandHandler("status", self.status_command))
         self.application.add_handler(CommandHandler("check", self.check_now))
-        
+
         # Добавляем обработчик ошибок
         self.application.add_error_handler(self.error_handler)
-        
-        # Запускаем бота
+
+        return self.application
+
+    def run(self):
+        """
+        Запуск бота
+
+        run_polling сам ставит обработчики SIGINT/SIGTERM и корректно
+        останавливает приложение вместе с job_queue.
+        """
+        if self.application is None:
+            self.build()
+
         self.logger.info("Запускаю бота...")
         self.application.run_polling()

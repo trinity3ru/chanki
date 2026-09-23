@@ -5,9 +5,9 @@
 TELEGRAM_BOT_TOKEN=ваш_токен_бота_здесь
 
 # Дополнительные настройки (опционально)
-# DEBUG=false
-# LOG_LEVEL=INFO
 # CHECK_INTERVAL_HOURS=6
+# REQUEST_TIMEOUT=10
+# FIRST_CHECK_DELAY_SECONDS=60
 
 # Инструкция по созданию .env файла:
 # 1. Создайте файл .env в корне проекта

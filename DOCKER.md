@@ -1,356 +1,222 @@
-# 🐳 Docker развертывание
+# 🐳 Развертывание в Docker
 
-Полное руководство по развертыванию приложения мониторинга сайтов с Docker на VPS.
+Бот работает через long polling и **не имеет web-интерфейса**, поэтому порты
+наружу не публикуются вообще. Это важно на общем сервере, где 80/443 уже заняты
+Nginx Proxy Manager.
 
-## ⚡ Быстрый старт
+## 📋 Требования
 
-### 1. Подготовка сервера
+- Docker
+- Docker Compose **v2** (команда `docker compose`, не `docker-compose`)
+- Токен бота от [@BotFather](https://t.me/botfather)
+
+Скрипты в этом репозитории ничего не устанавливают в систему — Docker должен
+быть уже настроен.
+
+## 🚀 Развертывание
+
 ```bash
-# Скачайте проект на VPS
-git clone <ваш-репозиторий>
+# 1. Скопируйте проект на сервер
+git clone <your-repo> chanki
 cd chanki
 
-# Сделайте скрипт исполняемым
-chmod +x docker-deploy.sh
-```
-
-### 2. Настройка переменных окружения
-```bash
-# Создайте .env файл из шаблона
+# 2. Создайте .env
 cp docker.env.example .env
-
-# Отредактируйте .env и добавьте токен бота
-nano .env
-```
-
-### 3. Запуск
-```bash
-# Запустите автоматическое развертывание
-./docker-deploy.sh
-```
-
-## 📁 Структура Docker файлов
-
-```
-📁 Проект
-├── 🐳 Dockerfile              # Образ приложения
-├── 📋 docker-compose.yml      # Оркестрация контейнеров
-├── 🚫 .dockerignore          # Исключения для сборки
-├── 🛠️ docker-deploy.sh       # Скрипт автоматического развертывания
-└── 📄 docker.env.example     # Шаблон переменных окружения
-```
-
-## 🔧 Подробная настройка
-
-### Dockerfile
-
-**Основные особенности:**
-- Базовый образ: `python:3.11-slim`
-- Установка UV для управления зависимостями
-- Создание непривилегированного пользователя
-- Оптимизация для производства
-
-### docker-compose.yml
-
-**Включает:**
-- Автоматический перезапуск контейнера
-- Монтирование volumes для данных и логов
-- Ограничения ресурсов (256MB RAM, 0.5 CPU)
-- Health check для мониторинга состояния
-- Изолированная сеть
-
-### Переменные окружения
-
-**Обязательные:**
-```env
-TELEGRAM_BOT_TOKEN=ваш_токен_бота
-```
-
-**Опциональные:**
-```env
-CHECK_INTERVAL_HOURS=6          # Интервал проверки
-REQUEST_TIMEOUT=10              # Таймаут запросов
-SIGNIFICANT_CHANGE_THRESHOLD=0.15   # Порог значительных изменений
-MIN_CHANGED_CHARS=50            # Мин. количество измененных символов
-MAX_LENGTH_CHANGE_RATIO=0.30    # Макс. изменение длины контента
-```
-
-## 🚀 Развертывание на VPS
-
-### Системные требования
-
-**Минимальные:**
-- CPU: 1 ядро
-- RAM: 512 MB
-- Диск: 1 GB свободного места
-- ОС: Ubuntu 20.04+ / Debian 10+ / CentOS 8+
-
-**Рекомендуемые:**
-- CPU: 2 ядра
-- RAM: 1 GB
-- Диск: 5 GB свободного места
-
-### Пошаговая инструкция
-
-#### 1. Подготовка сервера
-```bash
-# Обновляем систему
-sudo apt update && sudo apt upgrade -y
-
-# Устанавливаем git (если не установлен)
-sudo apt install -y git
-
-# Клонируем проект
-git clone <ваш-репозиторий>
-cd chanki
-```
-
-#### 2. Настройка приложения
-```bash
-# Создаем .env файл
-cp docker.env.example .env
-
-# Редактируем настройки
-nano .env
-```
-
-**Пример .env файла:**
-```env
-TELEGRAM_BOT_TOKEN=ваш_реальный_токен_здесь
-CHECK_INTERVAL_HOURS=6
-REQUEST_TIMEOUT=10
-DEBUG=false
-```
-
-#### 3. Запуск развертывания
-```bash
-# Запускаем автоматическую установку
-./docker-deploy.sh
-```
-
-Скрипт автоматически:
-- ✅ Установит Docker и Docker Compose
-- ✅ Создаст необходимые директории
-- ✅ Соберет образ приложения
-- ✅ Запустит контейнер в фоновом режиме
-
-## 📊 Управление контейнером
-
-### Основные команды
-
-```bash
-# Просмотр статуса
-docker-compose ps
-
-# Просмотр логов
-docker-compose logs -f site-monitor
-
-# Перезапуск
-docker-compose restart site-monitor
-
-# Остановка
-docker-compose stop
-
-# Полное удаление
-docker-compose down
-
-# Обновление образа
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-### Мониторинг
-
-```bash
-# Просмотр последних логов
-docker-compose logs --tail=50 site-monitor
-
-# Мониторинг ресурсов
-docker stats site-monitor-bot
-
-# Проверка health check
-docker inspect site-monitor-bot | grep Health -A 10
-```
-
-## 📁 Управление данными
-
-### Volumes и монтирование
-
-**Автоматически создаются:**
-- `./data/` - данные приложения
-- `./logs/` - файлы логов
-- `./sites.json` - база данных сайтов
-- `./monitor.log` - основной лог
-
-### Резервное копирование
-
-```bash
-# Создание резервной копии
-tar -czf backup-$(date +%Y%m%d).tar.gz sites.json monitor.log data/ logs/
-
-# Восстановление из резервной копии
-tar -xzf backup-20231225.tar.gz
-docker-compose restart site-monitor
-```
-
-## 🔒 Безопасность
-
-### Рекомендации по безопасности
-
-1. **Ограничение доступа:**
-```bash
-# Ограничиваем доступ к .env файлу
+nano .env          # вставьте реальный TELEGRAM_BOT_TOKEN
 chmod 600 .env
 
-# Ограничиваем доступ к данным
-chmod 750 data logs
+# 3. Запустите
+./deploy.sh
 ```
 
-2. **Обновления:**
-```bash
-# Регулярно обновляйте образ
-docker-compose pull
-docker-compose up -d
-```
+`deploy.sh` проверит наличие Docker и Compose v2, заполненность `.env`,
+свободно ли имя контейнера, соберёт образ и поднимет сервис. Он не выполняет
+`docker compose down`, ничего не удаляет и не трогает чужие контейнеры.
 
-3. **Мониторинг:**
-```bash
-# Настройте мониторинг логов
-tail -f logs/monitor.log | grep ERROR
-```
-
-### Firewall настройки
+Ручной эквивалент:
 
 ```bash
-# Разрешаем только SSH и блокируем остальное
-sudo ufw allow ssh
-sudo ufw enable
-
-# Docker автоматически настроит необходимые правила
+docker compose build
+docker compose up -d
 ```
+
+## 🔒 Изоляция на общем сервере
+
+Проект спроектирован так, чтобы не пересекаться с соседями:
+
+| Ресурс | Значение | Почему так |
+|--------|----------|------------|
+| Порты | не публикуются | long polling, web-интерфейса нет; 80/443 заняты NPM |
+| Контейнер | `chanki-site-monitor` | уникальное имя, `deploy.sh` проверяет занятость |
+| Проект Compose | `chanki` (`name:` в compose) | имена не зависят от каталога клонирования |
+| Сеть | `chanki_chanki-net` (своя bridge) | к существующим сетям не подключаемся |
+| Volume'ы | `chanki_chanki-data`, `chanki_chanki-logs` | свои именованные, чужие не монтируем |
+| Каталог проекта | в контейнер **не** пробрасывается | `.env` и `.git` остаются на хосте |
+| Логи Docker | ротация 10 МБ × 3 | чтобы не съесть диск общего сервера |
+
+Proxy Host в Nginx Proxy Manager для этого сервиса **не нужен**.
+
+## 📁 Где лежат данные
+
+Внутри контейнера:
+
+| Путь | Volume | Содержимое |
+|------|--------|-----------|
+| `/app/data/sites.json` | `chanki-data` | список сайтов и статусы проверок |
+| `/app/data/snapshots/` | `chanki-data` | снимки текста страниц для сравнения |
+| `/app/logs/monitor.log` | `chanki-logs` | логи приложения |
+
+Права выставляются в образе: приложение работает от пользователя `sitebot`
+(UID 1000), именованные volume'ы наследуют владельца. Возиться с `chown` и
+`chmod` на хосте не нужно.
+
+## ⚙️ Настройки
+
+Переменные читаются из `.env` рядом с `docker-compose.yml`:
+
+| Переменная | По умолчанию | Описание |
+|-----------|:------------:|----------|
+| `TELEGRAM_BOT_TOKEN` | — | **обязательно**, токен бота |
+| `TELEGRAM_PROXY_URL` | пусто | прокси для Telegram, если API недоступен напрямую |
+| `CONNECT_TIMEOUT` | 20 | таймаут соединения с Telegram в секундах |
+| `READ_TIMEOUT` | 20 | таймаут чтения ответа Telegram в секундах |
+| `CHECK_INTERVAL_HOURS` | 6 | интервал проверки в часах |
+| `REQUEST_TIMEOUT` | 10 | таймаут HTTP запроса к проверяемым сайтам |
+| `MIN_CONTENT_LENGTH` | 100 | минимальная длина контента |
+| `ERROR_RETRY_DELAY_SECONDS` | 30 | пауза перед перепроверкой упавшего сайта |
+
+Если `TELEGRAM_BOT_TOKEN` не задан, `docker compose` откажется стартовать с
+понятной ошибкой, а не поднимет нерабочий контейнер.
+
+Ресурсы ограничены: 256 МБ памяти и 0.5 CPU (резерв 128 МБ / 0.2 CPU).
+
+## 🔧 Управление
+
+```bash
+docker compose ps                         # статус
+docker compose logs -f site-monitor       # логи в реальном времени
+docker compose logs --tail=50 site-monitor
+docker compose restart site-monitor       # перезапуск
+docker compose stop site-monitor          # остановка
+```
+
+Диагностика одной командой (только чтение, ничего не меняет):
+
+```bash
+./diagnose.sh
+```
+
+## 🔄 Обновление
+
+```bash
+git pull
+docker compose build
+docker compose up -d
+```
+
+Данные в volume'ах переживают пересборку. Формат базы мигрирует автоматически:
+при первом чтении старого `sites.json` (плоский список со встроенным
+`last_content`) он будет переписан в новый формат.
+
+## 💾 Восстановление из бэкапа
+
+Бэкап — архив содержимого `/app/data` (`sites.json` и `snapshots/`).
+Восстанавливать до первого запуска бота, иначе он успеет создать пустую базу:
+
+```bash
+# 1. Собрать образ (.env с токеном уже должен лежать рядом)
+docker compose build
+
+# 2. Распаковать архив в volume данных и отдать файлы пользователю приложения.
+#    Volume chanki_chanki-data создается автоматически
+docker compose run --rm --no-deps -u 0 \
+  -v "$PWD/chanki-data.tar.gz:/backup.tar.gz:ro" \
+  site-monitor sh -c 'tar -xzf /backup.tar.gz -C /app/data && chown -R sitebot:sitebot /app/data'
+
+# 3. Запустить
+docker compose up -d
+```
+
+Снять бэкап с работающего бота:
+
+```bash
+docker compose exec -T site-monitor tar -czf - -C /app/data . > chanki-data.tar.gz
+```
+
+## 🗑️ Удаление
+
+```bash
+docker compose down          # остановить и удалить контейнер и сеть проекта
+```
+
+Volume'ы при этом сохраняются. Чтобы удалить и данные:
+
+```bash
+docker compose down -v       # ⚠️ удалит список сайтов и снимки безвозвратно
+```
+
+> `docker compose down` затрагивает только этот проект. Не запускайте
+> `docker system prune` или `docker network prune` на общем сервере — они
+> заденут соседние проекты.
 
 ## 🚨 Устранение неполадок
 
-### Частые проблемы
+**Контейнер перезапускается по кругу.** Смотрите `docker compose logs
+site-monitor`. Чаще всего — неверный токен: `telegram.error.InvalidToken`.
 
-#### 1. Контейнер не запускается
-```bash
-# Проверяем логи
-docker-compose logs site-monitor
-
-# Проверяем .env файл
-cat .env | grep TELEGRAM_BOT_TOKEN
-```
-
-#### 2. Нет доступа к интернету
-```bash
-# Проверяем сетевые настройки
-docker network ls
-docker network inspect chanki_site-monitor-network
-```
-
-#### 3. Проблемы с разрешениями или volumes
-```bash
-# Исправляем права доступа
-sudo chown -R $USER:$USER data logs sites.json monitor.log
-chmod 644 sites.json monitor.log
-chmod 755 data logs
-```
-
-#### 4. Ошибка "IsADirectoryError: monitor.log"
-```bash
-# Автоматическое исправление проблем с volumes
-./fix-docker-volumes.sh
-```
-
-#### 5. Ошибка "PermissionError: Permission denied"
-```bash
-# Автоматическое исправление прав доступа
-./fix-permissions.sh
-
-# Или вручную:
-docker-compose down
-mkdir -p data logs
-touch sites.json logs/monitor.log
-chmod 755 data logs
-chmod 666 logs/monitor.log
-sudo chown -R 1000:1000 data logs sites.json
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-#### 6. Нехватка ресурсов
-```bash
-# Проверяем использование ресурсов
-docker stats site-monitor-bot
-
-# Увеличиваем лимиты в docker-compose.yml
-nano docker-compose.yml
-```
-
-### Диагностика
+**`Не удалось связаться с Telegram (TimedOut)` при каждом старте.** Токен ни
+при чём: при неверном токене Telegram отвечает `Unauthorized` мгновенно, а
+таймаут означает, что соединение не устанавливается. Проверьте с хоста:
 
 ```bash
-# Полная диагностика
-echo "=== Статус контейнера ==="
-docker-compose ps
-
-echo "=== Последние логи ==="
-docker-compose logs --tail=20 site-monitor
-
-echo "=== Использование ресурсов ==="
-docker stats site-monitor-bot --no-stream
-
-echo "=== Размер данных ==="
-du -sh data logs sites.json monitor.log
+curl -sS -o /dev/null -w '%{http_code} за %{time_total}s\n' --max-time 20 https://api.telegram.org
+curl -sS -o /dev/null -w '%{http_code} за %{time_total}s\n' --max-time 20 https://www.google.com
 ```
 
-## 🔄 Обновление приложения
-
-### Обновление кода
+Если google отвечает `200`, а Telegram — нет, значит трафик на сети Telegram
+блокируется провайдером или страной размещения. Настройками Docker это не
+лечится, нужен прокси:
 
 ```bash
-# Получаем новые изменения
-git pull origin main
-
-# Пересобираем образ
-docker-compose build --no-cache
-
-# Перезапускаем с новым образом
-docker-compose up -d
+echo 'TELEGRAM_PROXY_URL=http://login:password@1.2.3.4:8000' >> .env
+docker compose up -d
 ```
 
-### Обновление конфигурации
+В логах при успехе появится `Связь с Telegram настроена через прокси
+http://***:***@1.2.3.4:8000` — учётные данные в логи не пишутся.
+
+**Формат обязателен со схемой.** Продавцы прокси обычно выдают строку вида
+`ip:port:login:password` — её нужно переписать в URL:
+
+```
+161.0.6.18:8000:user:pass   ->   http://user:pass@161.0.6.18:8000
+```
+
+Если схему не указать, приложение остановится с подсказкой, а не с невнятной
+ошибкой клиента. Спецсимволы в пароле кодируются процентами (`@` = `%40`).
+
+**Какой у вас тип прокси**, HTTP или SOCKS5, проще проверить curl'ом — тот,
+что ответит быстро и не отвалится по таймауту:
 
 ```bash
-# Редактируем переменные окружения
-nano .env
-
-# Перезапускаем контейнер
-docker-compose restart site-monitor
+curl -sS -o /dev/null -w 'HTTP:   %{http_code} за %{time_total}s\n' --max-time 20 \
+  -x 'http://login:password@1.2.3.4:8000' https://api.telegram.org
+curl -sS -o /dev/null -w 'SOCKS5: %{http_code} за %{time_total}s\n' --max-time 20 \
+  -x 'socks5h://login:password@1.2.3.4:8000' https://api.telegram.org
 ```
 
-## 📈 Масштабирование
+Ответ `302` — это норма для корня `api.telegram.org`, соединение работает.
 
-### Запуск нескольких экземпляров
+Проверки сайтов через прокси не идут: монитор всегда обращается к сайтам
+напрямую с сервера, чтобы видеть их так же, как их видит сам сервер.
 
-```bash
-# Копируем проект для второго бота
-cp -r chanki chanki-bot2
-cd chanki-bot2
+**`Bad Request: chat not found` в логах.** Пользователь не начинал диалог с
+ботом или заблокировал его. Уведомления такому пользователю не дойдут,
+остальные обрабатываются штатно.
 
-# Настраиваем другой токен
-nano .env
+**Имя контейнера занято.** Значит, `chanki-site-monitor` уже используется
+другим проектом. Измените `container_name` в `docker-compose.yml`.
 
-# Запускаем второй экземпляр
-./docker-deploy.sh
-```
-
----
-
-**🎯 Docker развертывание обеспечивает:**
-- ✅ Изоляцию приложения
-- ✅ Простое развертывание
-- ✅ Автоматические перезапуски
-- ✅ Контроль ресурсов
-- ✅ Простое обновление
+**Healthcheck показывает unhealthy.** Проверяется доступность
+`api.telegram.org` из контейнера. Если сеть в порядке, а статус красный —
+смотрите логи, проблема в приложении.
