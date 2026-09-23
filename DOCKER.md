@@ -48,8 +48,9 @@ docker compose up -d
 |--------|----------|------------|
 | Порты | не публикуются | long polling, web-интерфейса нет; 80/443 заняты NPM |
 | Контейнер | `chanki-site-monitor` | уникальное имя, `deploy.sh` проверяет занятость |
-| Сеть | `chanki-net` (своя bridge) | к существующим сетям не подключаемся |
-| Volume'ы | `chanki-data`, `chanki-logs` | свои именованные, чужие не монтируем |
+| Проект Compose | `chanki` (`name:` в compose) | имена не зависят от каталога клонирования |
+| Сеть | `chanki_chanki-net` (своя bridge) | к существующим сетям не подключаемся |
+| Volume'ы | `chanki_chanki-data`, `chanki_chanki-logs` | свои именованные, чужие не монтируем |
 | Каталог проекта | в контейнер **не** пробрасывается | `.env` и `.git` остаются на хосте |
 | Логи Docker | ротация 10 МБ × 3 | чтобы не съесть диск общего сервера |
 
@@ -116,6 +117,31 @@ docker compose up -d
 Данные в volume'ах переживают пересборку. Формат базы мигрирует автоматически:
 при первом чтении старого `sites.json` (плоский список со встроенным
 `last_content`) он будет переписан в новый формат.
+
+## 💾 Восстановление из бэкапа
+
+Бэкап — архив содержимого `/app/data` (`sites.json` и `snapshots/`).
+Восстанавливать до первого запуска бота, иначе он успеет создать пустую базу:
+
+```bash
+# 1. Собрать образ (.env с токеном уже должен лежать рядом)
+docker compose build
+
+# 2. Распаковать архив в volume данных и отдать файлы пользователю приложения.
+#    Volume chanki_chanki-data создается автоматически
+docker compose run --rm --no-deps -u 0 \
+  -v "$PWD/chanki-data.tar.gz:/backup.tar.gz:ro" \
+  site-monitor sh -c 'tar -xzf /backup.tar.gz -C /app/data && chown -R sitebot:sitebot /app/data'
+
+# 3. Запустить
+docker compose up -d
+```
+
+Снять бэкап с работающего бота:
+
+```bash
+docker compose exec -T site-monitor tar -czf - -C /app/data . > chanki-data.tar.gz
+```
 
 ## 🗑️ Удаление
 

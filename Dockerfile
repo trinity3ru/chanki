@@ -4,14 +4,9 @@ FROM python:3.11-slim
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Устанавливаем системные зависимости
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Устанавливаем UV для управления зависимостями
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
+# UV берем из официального образа с зафиксированной версией,
+# а не скриптом из интернета: сборка воспроизводима и не тянет curl
+COPY --from=ghcr.io/astral-sh/uv:0.12.18 /uv /bin/uv
 
 # Копируем файл с зависимостями
 COPY requirements.txt .
