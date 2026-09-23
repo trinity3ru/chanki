@@ -57,52 +57,27 @@ class SiteMonitor:
         site_id = site['id']
 
         with self._check_lock:
+            kind, value = self._fetch_text(url)
+
+            # Разовый сбой (таймаут, 502 от балансировщика) не повод будить
+            # владельца: перепроверяем один раз, и только потом пишем ошибку
+            if kind == 'error':
+                time.sleep(config.ERROR_RETRY_DELAY_SECONDS)
+                kind, value = self._fetch_text(url)
+
+            if kind == 'error':
+                return self._fail(site_id, value)
+
+            # SPA (React, Vue и т.п.) рисует текст в браузере, а в HTML
+            # отдает только скрипты. Сайт доступен, но сравнивать нечего -
+            # проверяем только доступность, хеш и снимок не трогаем
+            if kind == 'js':
+                self.database.update_site_status(site_id, 'ok')
+                return 'ok', 'Сайт доступен (JS-сайт: изменения контента не отслеживаются)', None
+
+            clean_text = value
+
             try:
-                # Выполняем HTTP запрос с таймаутом
-                response = self.session.get(
-                    url,
-                    timeout=config.REQUEST_TIMEOUT,
-                    allow_redirects=True
-                )
-
-                # Проверяем HTTP статус код
-                if response.status_code != 200:
-                    return self._fail(site_id, f"HTTP ошибка: {response.status_code}")
-
-                # Получаем содержимое страницы
-                content = response.text
-
-                # Проверяем минимальную длину контента
-                if len(content) < config.MIN_CONTENT_LENGTH:
-                    return self._fail(site_id, f"Слишком короткий контент: {len(content)} символов")
-
-                # Извлекаем основной контент (убираем HTML теги)
-                soup = BeautifulSoup(content, 'html.parser')
-
-                # Запоминаем до удаления скриптов: нужно, чтобы распознать JS-сайт
-                has_scripts = soup.find('script') is not None
-
-                # Убираем скрипты, стили и другие технические элементы
-                for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
-                    script.decompose()
-
-                # Получаем чистый текст
-                clean_text = soup.get_text()
-
-                # Убираем лишние пробелы и переносы строк
-                clean_text = ' '.join(clean_text.split())
-
-                # Проверяем минимальную длину очищенного текста
-                if len(clean_text) < config.MIN_CONTENT_LENGTH:
-                    # SPA (React, Vue и т.п.) рисует текст в браузере, а в HTML
-                    # отдает только скрипты. Сайт доступен, но сравнивать нечего -
-                    # проверяем только доступность, хеш и снимок не трогаем
-                    if has_scripts:
-                        self.database.update_site_status(site_id, 'ok')
-                        return 'ok', 'Сайт доступен (JS-сайт: изменения контента не отслеживаются)', None
-
-                    return self._fail(site_id, f"Слишком мало текстового контента: {len(clean_text)} символов")
-
                 # Вычисляем хеш контента
                 content_hash = hashlib.sha256(clean_text.encode('utf-8')).hexdigest()
 
@@ -136,17 +111,73 @@ class SiteMonitor:
                     self.database.update_site_status(site_id, 'ok', content_hash)
                     return 'ok', 'Сайт доступен, контент не изменился', content_hash
 
-            except requests.exceptions.Timeout:
-                return self._fail(site_id, f"Таймаут запроса (>{config.REQUEST_TIMEOUT}с)")
-
-            except requests.exceptions.ConnectionError:
-                return self._fail(site_id, "Ошибка подключения к сайту")
-
-            except requests.exceptions.RequestException as e:
-                return self._fail(site_id, f"Ошибка запроса: {str(e)}")
-
             except Exception as e:
                 return self._fail(site_id, f"Неожиданная ошибка: {str(e)}")
+
+    def _fetch_text(self, url: str) -> Tuple[str, str]:
+        """
+        Скачивает страницу и извлекает из нее чистый текст
+
+        Ничего не пишет в базу, поэтому безопасно вызывается повторно.
+
+        Args:
+            url (str): URL страницы
+
+        Returns:
+            Tuple[str, str]: ('text', чистый_текст), ('js', '') для страницы,
+            которая рисует текст скриптами, или ('error', описание_ошибки)
+        """
+        try:
+            # Выполняем HTTP запрос с таймаутом
+            response = self.session.get(
+                url,
+                timeout=config.REQUEST_TIMEOUT,
+                allow_redirects=True
+            )
+
+            # Проверяем HTTP статус код
+            if response.status_code != 200:
+                return 'error', f"HTTP ошибка: {response.status_code}"
+
+            # Получаем содержимое страницы
+            content = response.text
+
+            # Проверяем минимальную длину контента
+            if len(content) < config.MIN_CONTENT_LENGTH:
+                return 'error', f"Слишком короткий контент: {len(content)} символов"
+
+            # Извлекаем основной контент (убираем HTML теги)
+            soup = BeautifulSoup(content, 'html.parser')
+
+            # Запоминаем до удаления скриптов: нужно, чтобы распознать JS-сайт
+            has_scripts = soup.find('script') is not None
+
+            # Убираем скрипты, стили и другие технические элементы
+            for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
+                script.decompose()
+
+            # Получаем чистый текст и убираем лишние пробелы и переносы строк
+            clean_text = ' '.join(soup.get_text().split())
+
+            # Проверяем минимальную длину очищенного текста
+            if len(clean_text) < config.MIN_CONTENT_LENGTH:
+                if has_scripts:
+                    return 'js', ''
+                return 'error', f"Слишком мало текстового контента: {len(clean_text)} символов"
+
+            return 'text', clean_text
+
+        except requests.exceptions.Timeout:
+            return 'error', f"Таймаут запроса (>{config.REQUEST_TIMEOUT}с)"
+
+        except requests.exceptions.ConnectionError:
+            return 'error', "Ошибка подключения к сайту"
+
+        except requests.exceptions.RequestException as e:
+            return 'error', f"Ошибка запроса: {str(e)}"
+
+        except Exception as e:
+            return 'error', f"Неожиданная ошибка: {str(e)}"
 
     def _fail(self, site_id: int, error_message: str) -> Tuple[str, str, None]:
         """

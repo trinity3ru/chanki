@@ -24,6 +24,7 @@ READ_TIMEOUT = float(os.getenv('READ_TIMEOUT', 20))
 CHECK_INTERVAL_HOURS = int(os.getenv('CHECK_INTERVAL_HOURS', 6))  # Интервал проверки в часах
 REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', 10))  # Таймаут HTTP запроса в секундах
 FIRST_CHECK_DELAY_SECONDS = int(os.getenv('FIRST_CHECK_DELAY_SECONDS', 60))  # Задержка первой проверки после старта
+ERROR_RETRY_DELAY_SECONDS = int(os.getenv('ERROR_RETRY_DELAY_SECONDS', 30))  # Пауза перед перепроверкой упавшего сайта
 
 # Настройки детекции изменений
 MIN_CONTENT_LENGTH = int(os.getenv('MIN_CONTENT_LENGTH', 100))  # Минимальная длина контента

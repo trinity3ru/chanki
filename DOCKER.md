@@ -82,6 +82,7 @@ Proxy Host в Nginx Proxy Manager для этого сервиса **не нуж
 | `CHECK_INTERVAL_HOURS` | 6 | интервал проверки в часах |
 | `REQUEST_TIMEOUT` | 10 | таймаут HTTP запроса к проверяемым сайтам |
 | `MIN_CONTENT_LENGTH` | 100 | минимальная длина контента |
+| `ERROR_RETRY_DELAY_SECONDS` | 30 | пауза перед перепроверкой упавшего сайта |
 
 Если `TELEGRAM_BOT_TOKEN` не задан, `docker compose` откажется стартовать с
 понятной ошибкой, а не поднимет нерабочий контейнер.

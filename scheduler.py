@@ -8,7 +8,7 @@ event loop, что и сам бот. Отдельный поток не нуже
 """
 import asyncio
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 from telegram.ext import Application, ContextTypes
 import config
 from telegram_bot import SiteMonitorBot, split_message
@@ -103,7 +103,9 @@ class MonitoringScheduler:
             context (ContextTypes.DEFAULT_TYPE): Контекст задачи
             results (Dict[str, List]): Результаты проверки
         """
-        # Раскладываем результаты по владельцам сайтов
+        # Раскладываем по владельцам только события - смену состояния сайта.
+        # Сайт, который как работал, так и работает (или как лежал, так и
+        # лежит), повторно не упоминаем, иначе уведомления превращаются в спам
         results_by_user = {}
 
         for status, entries in results.items():
@@ -111,10 +113,15 @@ class MonitoringScheduler:
                 user_id = entry['site'].get('user_id')
                 if user_id is None:
                     continue
+
+                event = self._detect_event(status, entry['site'].get('last_status'))
+                if event is None:
+                    continue
+
                 user_results = results_by_user.setdefault(
-                    user_id, {'ok': [], 'error': [], 'changed': []}
+                    user_id, {'down': [], 'recovered': [], 'changed': []}
                 )
-                user_results[status].append(entry)
+                user_results[event].append(entry)
 
         for user_id, user_results in results_by_user.items():
             notification = self._format_user_notification(user_results)
@@ -131,44 +138,58 @@ class MonitoringScheduler:
                     f"Ошибка при отправке уведомления пользователю {user_id}: {str(e)}"
                 )
 
+    @staticmethod
+    def _detect_event(status: str, previous_status: Optional[str]) -> Optional[str]:
+        """
+        Определяет, о каком событии стоит сообщить владельцу сайта
+
+        Args:
+            status (str): Результат текущей проверки ('ok', 'error', 'changed')
+            previous_status (str): Статус из базы до проверки (или None)
+
+        Returns:
+            str: 'down', 'recovered', 'changed' или None, если сообщать не о чем
+        """
+        if status == 'error':
+            return 'down' if previous_status != 'error' else None
+
+        if status == 'changed':
+            return 'changed'
+
+        return 'recovered' if previous_status == 'error' else None
+
     def _format_user_notification(self, user_results: Dict[str, List]) -> str:
         """
         Формирует текст уведомления для пользователя
 
         Args:
-            user_results (Dict[str, List]): Результаты проверки для пользователя
+            user_results (Dict[str, List]): События пользователя по типам
 
         Returns:
             str: Текст уведомления или пустая строка если нечего уведомлять
         """
-        total_sites = sum(len(sites) for sites in user_results.values())
+        sections = [
+            ('down', "❌ Сайт перестал работать:", True),
+            ('recovered', "✅ Сайт снова работает:", False),
+            ('changed', "🔄 Изменился контент:", True),
+        ]
 
-        if total_sites == 0:
+        notification = ""
+
+        for event, title, with_message in sections:
+            if not user_results[event]:
+                continue
+
+            notification += f"{title}\n"
+            for result in user_results[event]:
+                site = result['site']
+                line = f"  • {site['name']}"
+                if with_message:
+                    line += f": {result['message']}"
+                notification += f"{line}\n"
+            notification += "\n"
+
+        if not notification:
             return ""
 
-        notification = f"🔔 Результаты проверки сайтов ({total_sites}):\n\n"
-
-        # Добавляем информацию об ошибках
-        if user_results['error']:
-            notification += "❌ Проблемы с сайтами:\n"
-            for result in user_results['error']:
-                site = result['site']
-                notification += f"  • {site['name']}: {result['message']}\n"
-            notification += "\n"
-
-        # Добавляем информацию об изменениях
-        if user_results['changed']:
-            notification += "🔄 Сайты с изменениями:\n"
-            for result in user_results['changed']:
-                site = result['site']
-                notification += f"  • {site['name']}: {result['message']}\n"
-            notification += "\n"
-
-        # Добавляем общую статистику
-        working_sites = len(user_results['ok'])
-        if working_sites > 0:
-            notification += f"✅ Работают нормально: {working_sites} сайтов\n"
-
-        notification += f"\n🕐 Следующая проверка через {config.CHECK_INTERVAL_HOURS} часов"
-
-        return notification
+        return "🔔 Мониторинг сайтов\n\n" + notification.rstrip()

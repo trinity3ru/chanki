@@ -5,12 +5,18 @@
 Проверки базы данных и детекции изменений работают офлайн.
 Проверка реального сайта требует доступа в интернет и делается последней.
 """
+import asyncio
 import json
 import os
 import shutil
 import tempfile
+from types import SimpleNamespace
+import config
 from database import SitesDatabase
 from site_monitor import SiteMonitor
+
+# Перепроверку упавшего сайта в тестах не ждем
+config.ERROR_RETRY_DELAY_SECONDS = 0
 
 USER_A = 12345
 USER_B = 67890
@@ -219,6 +225,86 @@ def test_js_site(workdir: str):
     print("✅ Тестирование JS-сайтов завершено\n")
 
 
+def test_retry(workdir: str):
+    """Тестирование перепроверки перед объявлением ошибки (без сети)"""
+    print("🧪 Тестирование перепроверки...")
+
+    db = make_database(os.path.join(workdir, 'retry'))
+    monitor = SiteMonitor(db)
+    db.add_site("https://flaky.example", "Flaky", USER_A)
+    site = db.get_all_sites()[0]
+
+    page = "<html><body>" + "Нормальный текст страницы. " * 10 + "</body></html>"
+
+    # Первый запрос падает, второй успешен - ошибки нет и она не посчитана
+    responses = [FakeResponse('', 502), FakeResponse(page)]
+    monitor.session.get = lambda *args, **kwargs: responses.pop(0)
+
+    status, message, _ = monitor.check_site(site)
+    assert status == 'ok', message
+    assert not responses
+    assert db.get_site_by_id(site['id'])['error_count'] == 0
+    print("    ✅ Разовый сбой не считается ошибкой")
+
+    # Оба запроса падают - ошибка записана один раз
+    responses = [FakeResponse('', 502), FakeResponse('', 503)]
+    status, message, _ = monitor.check_site(site)
+    assert status == 'error' and message == "HTTP ошибка: 503", message
+    assert db.get_site_by_id(site['id'])['error_count'] == 1
+    print(f"    ✅ Повторный сбой - ошибка: {message}")
+
+    print("✅ Тестирование перепроверки завершено\n")
+
+
+def test_notifications():
+    """Тестирование уведомлений только о смене состояния (без сети)"""
+    print("🧪 Тестирование уведомлений по событиям...")
+
+    from scheduler import MonitoringScheduler
+
+    stub_bot = SimpleNamespace(database=None, monitor=None)
+    scheduler = MonitoringScheduler(stub_bot)
+
+    def entry(name, previous_status, message='сообщение', user_id=USER_A):
+        site = {'name': name, 'user_id': user_id, 'last_status': previous_status}
+        return {'site': site, 'message': message, 'content_hash': None}
+
+    results = {
+        'ok': [entry('Стабильный', 'ok'), entry('Поднялся', 'error'),
+               entry('Новый', None), entry('Мелкие правки', 'minor_change')],
+        'error': [entry('Упал', 'ok', 'HTTP ошибка: 500'), entry('Лежит', 'error'),
+                  entry('Новый битый', None, 'Таймаут')],
+        'changed': [entry('Обновился', 'ok', 'Значительные изменения'),
+                    entry('Чужой', 'ok', user_id=USER_B)],
+    }
+
+    sent = []
+
+    async def send_message(chat_id, text):
+        sent.append((chat_id, text))
+
+    context = SimpleNamespace(bot=SimpleNamespace(send_message=send_message))
+    asyncio.run(scheduler._send_notifications(context, results))
+
+    by_user = dict(sent)
+    assert set(by_user) == {USER_A, USER_B}, sent
+    text = by_user[USER_A]
+    for name in ('Упал', 'Новый битый', 'Поднялся', 'Обновился'):
+        assert name in text, f"нет события '{name}':\n{text}"
+    for name in ('Стабильный', 'Лежит', 'Новый\n', 'Мелкие правки', 'Чужой'):
+        assert name not in text, f"лишнее упоминание '{name}':\n{text}"
+    print("    ✅ В уведомлении только упавшие, поднявшиеся и изменившиеся сайты")
+
+    # Пользователь без событий уведомления не получает
+    sent.clear()
+    quiet = {'ok': [entry('Стабильный', 'ok')], 'error': [entry('Лежит', 'error')], 'changed': []}
+    asyncio.run(scheduler._send_notifications(context, quiet))
+    assert not sent, sent
+    print("    ✅ Без событий уведомление не отправляется")
+
+    print("✅ Тестирование уведомлений завершено\n")
+
+
 def test_config():
     """Тестирование конфигурации"""
     print("🧪 Тестирование конфигурации...")
@@ -283,6 +369,8 @@ def main():
         test_migration(workdir)
         test_change_detection(workdir)
         test_js_site(workdir)
+        test_retry(workdir)
+        test_notifications()
         test_live_check(db)
 
         print("🎉 Все тесты завершены успешно!")

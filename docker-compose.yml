@@ -20,6 +20,7 @@ services:
       - CHECK_INTERVAL_HOURS=${CHECK_INTERVAL_HOURS:-6}
       - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-10}
       - MIN_CONTENT_LENGTH=${MIN_CONTENT_LENGTH:-100}
+      - ERROR_RETRY_DELAY_SECONDS=${ERROR_RETRY_DELAY_SECONDS:-30}
 
       # Пути к файлам в контейнере (лежат в именованных volume'ах)
       - SITES_DATABASE_FILE=/app/data/sites.json
