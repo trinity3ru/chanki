@@ -79,6 +79,9 @@ class SiteMonitor:
                 # Извлекаем основной контент (убираем HTML теги)
                 soup = BeautifulSoup(content, 'html.parser')
 
+                # Запоминаем до удаления скриптов: нужно, чтобы распознать JS-сайт
+                has_scripts = soup.find('script') is not None
+
                 # Убираем скрипты, стили и другие технические элементы
                 for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
                     script.decompose()
@@ -91,6 +94,13 @@ class SiteMonitor:
 
                 # Проверяем минимальную длину очищенного текста
                 if len(clean_text) < config.MIN_CONTENT_LENGTH:
+                    # SPA (React, Vue и т.п.) рисует текст в браузере, а в HTML
+                    # отдает только скрипты. Сайт доступен, но сравнивать нечего -
+                    # проверяем только доступность, хеш и снимок не трогаем
+                    if has_scripts:
+                        self.database.update_site_status(site_id, 'ok')
+                        return 'ok', 'Сайт доступен (JS-сайт: изменения контента не отслеживаются)', None
+
                     return self._fail(site_id, f"Слишком мало текстового контента: {len(clean_text)} символов")
 
                 # Вычисляем хеш контента

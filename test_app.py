@@ -176,6 +176,49 @@ def test_change_detection(workdir: str):
     print("✅ Тестирование детекции завершено\n")
 
 
+class FakeResponse:
+    """Подставной HTTP-ответ, чтобы проверять check_site без сети"""
+
+    def __init__(self, text: str, status_code: int = 200):
+        self.text = text
+        self.status_code = status_code
+
+
+def test_js_site(workdir: str):
+    """Тестирование сайтов, которые рисуют текст через JavaScript (без сети)"""
+    print("🧪 Тестирование JS-сайтов...")
+
+    db = make_database(os.path.join(workdir, 'js'))
+    monitor = SiteMonitor(db)
+    db.add_site("https://spa.example", "SPA", USER_A)
+    site = db.get_all_sites()[0]
+
+    padding = "<!-- " + "x" * 200 + " -->"
+
+    # SPA: текста нет, но есть скрипты - сайт доступен
+    spa_html = (f"<html><head><title>SPA</title></head><body>{padding}"
+                "<div id=\"app\"></div><script src=\"bundle.js\"></script></body></html>")
+    monitor.session.get = lambda *args, **kwargs: FakeResponse(spa_html)
+
+    status, message, content_hash = monitor.check_site(site)
+    assert status == 'ok', message
+    assert content_hash is None
+    saved = db.get_site_by_id(site['id'])
+    assert saved['last_status'] == 'ok' and saved['last_error'] is None
+    assert saved['last_content_hash'] is None and db.get_snapshot(site['id']) == ''
+    print(f"    ✅ SPA считается доступной: {message}")
+
+    # Пустая страница без скриптов - по-прежнему ошибка
+    empty_html = f"<html><head><title>Пусто</title></head><body>{padding}</body></html>"
+    monitor.session.get = lambda *args, **kwargs: FakeResponse(empty_html)
+
+    status, message, _ = monitor.check_site(site)
+    assert status == 'error', message
+    print(f"    ✅ Пустая страница без скриптов - ошибка: {message}")
+
+    print("✅ Тестирование JS-сайтов завершено\n")
+
+
 def test_config():
     """Тестирование конфигурации"""
     print("🧪 Тестирование конфигурации...")
@@ -239,6 +282,7 @@ def main():
         test_snapshots(workdir)
         test_migration(workdir)
         test_change_detection(workdir)
+        test_js_site(workdir)
         test_live_check(db)
 
         print("🎉 Все тесты завершены успешно!")
